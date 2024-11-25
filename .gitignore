@@ -1,0 +1,8 @@
+backup/
+part1/__pycache__/
+part1/datasets/
+part1/exps_sgdm/
+part1/exps_adam/
+part2/__pycache__/
+part2/datasets/
+part2/exps/
