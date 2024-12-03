@@ -6,3 +6,13 @@ part1/exps_adam/
 part2/__pycache__/
 part2/datasets/
 part2/exps/
+part2/exps_adam/
+part2/exps_adamw/
+part2/exps_sgdm/
+part2/exps_backup/
+part3/datasets/
+part3/exps/
+part3/exps_adam/
+part3/exps_adamw/
+part3/exps_sgdm/
+part3/sidequest/
