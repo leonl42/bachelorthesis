@@ -1,7 +1,7 @@
 
   
 import jax
-#jax.config.update('jax_platform_name', 'cpu')
+jax.config.update('jax_platform_name', 'cpu')
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
@@ -9,18 +9,16 @@ for gpu in gpus:
 
 import random
 import jax.numpy as jnp
-from jax.numpy.linalg import vector_norm
 import flax.linen as nn
 from functools import partial
 import optax
-import matplotlib.pyplot as plt
 from jax.tree_util import keystr,tree_map_with_path,tree_map
 import numpy as np
 import tensorflow_datasets as tfds
 from tqdm import tqdm
 import pickle as pkl
 from types import SimpleNamespace
-
+import argparse
 import os
 
 class SimpleNamespaceNone(SimpleNamespace):
@@ -36,14 +34,6 @@ from typing import (
 from collections.abc import Iterable, Sequence
 
 import jax
-import jax.numpy as jnp
-import numpy as np
-from jax import eval_shape, lax
-from jax.core import ShapedArray
-
-import opt_einsum
-
-from flax.core import meta
 from flax.linen import initializers
 from flax.linen.dtypes import promote_dtype
 from flax.linen import module
@@ -137,7 +127,7 @@ class DenseSVD(Module):
     elif self.dot_general is not None:
       dot_general = self.dot_general
     else:
-      dot_general = lax.dot_general
+      dot_general = jax.lax.dot_general
 
     u,_,vt = jnp.linalg.svd(kernel,full_matrices=False)
 
@@ -326,7 +316,6 @@ def train(save_path,settings):
     
     print("Running: ", save_path)
 
-    save_path += "/"
 
     os.makedirs(save_path,exist_ok=True)
     os.makedirs(save_path + "states/dense/",exist_ok=True)
@@ -335,7 +324,7 @@ def train(save_path,settings):
     #####################################
         ## Initialize the dataset ##
     #####################################
-    builder = tfds.builder("cifar10",data_dir="./datasets")
+    builder = tfds.builder("cifar10",data_dir="./datasets/" + settings.dataset_id)
     builder.download_and_prepare()
     ds_train,ds_test = builder.as_dataset(split=["train", "test"])
 
@@ -396,7 +385,7 @@ def train(save_path,settings):
     opt_params = init_optimizer(params,optim.init)
 
     # Perform "settings.steps" on a dataset that is an infinite iterator
-    for i,(x_train,y_train)in zip(range(settings.steps+1),ds_stack_iterator(*ds_train_train)):
+    for i,(x_train,y_train)in zip(tqdm(range(settings.steps+1)),ds_stack_iterator(*ds_train_train)):
 
         # Save dense params
         if settings.save_dense_every and random.randint(a=1,b=settings.save_dense_every) == 1:
@@ -430,12 +419,19 @@ def train(save_path,settings):
             # Save stats (train/test loss/accuracy)
             with open(save_path+"stats.pkl","wb") as f:
                 pkl.dump(stats_ckpts,f)
-for loss_svd_scale in [0.00125,0.005,0.01,0.02,0.05,0.08]:
-    save_path = "./sidequest/DenseSVD/"+str(loss_svd_scale)+"/run_1/"
-    train(save_path, SimpleNamespaceNone(num_parallel_exps=3,
-                                                steps=150000,
-                                                lr=0.0001,
-                                                optim="adam",
-                                                eval_every=1000,
-                                                save_dense_every=1000,
-                                                loss_svd_scale = loss_svd_scale))
+
+if __name__ == "__main__":
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument('id', type=str)
+  args = parser.parse_args()
+  for loss_svd_scale in [0.0008]:
+      save_path = "./saves/DenseSVD/"+str(loss_svd_scale)+"/run_" + args.id + "/"
+      train(save_path, SimpleNamespaceNone(num_parallel_exps=3,
+                                                  steps=150000,
+                                                  lr=0.0001,
+                                                  optim="adam",
+                                                  eval_every=5000,
+                                                  save_dense_every=10000,
+                                                  loss_svd_scale = loss_svd_scale,
+                                                  dataset_id = args.id))

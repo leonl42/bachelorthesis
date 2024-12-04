@@ -43,7 +43,31 @@ class FullyConnected(nn.Module):
         x = nn.Dense(features=self.num_outputs)(x)
 
         return x
-    
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
+def svd_smoothing(w,p):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        delta_shift <float> : shift parameter
+        delta_scale <float> : scale parameter
+    Returns:
+        w <jax.Array> : Weight matrix but with the singular values scaled and smoothed
+
+    """
+    delta_scale,smoothing_factor = p
+    # Compute the singular value decomposition of w
+    u,s,vt = jnp.linalg.svd(w,full_matrices=False)
+    max_s = jnp.max(s)
+
+    s = jnp.sqrt(smoothing_factor*(s+1))+(max_s - jnp.sqrt(smoothing_factor*(max_s+1)))
+    s = s*delta_scale
+
+    w = u @ jnp.diag(s) @ vt
+
+    return w
+
 @jax.jit
 @partial(jax.vmap,in_axes=(0,None))
 def svd_scale(w,p):
@@ -147,8 +171,32 @@ def weight_center_normalize(w,scale):
     return w
 
 @jax.jit
-@partial(jax.vmap,in_axes=(0,None,None))
-def weight_center_std(w,scale,target_std):
+@partial(jax.vmap,in_axes=(0,None))
+def weight_center_normalize_uncenter(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0 and the channel norms normalized to "scale".
+    """
+    # Compute the channel means
+    mean = jnp.mean(w,axis=0,keepdims=True)
+
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel norms
+    norm = jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=True)
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7) + mean
+
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None,0))
+def weight_center_std_uncenter(w,scale,target_std):
     """
     Takes:
         w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
@@ -167,7 +215,7 @@ def weight_center_std(w,scale,target_std):
     std = jnp.std(w,axis=0,keepdims=True)
 
     # Compute the weight matrix with channel norms normalized to "scale"
-    w = scale*target_std*w/(std+1e-7)
+    w = scale*target_std*w/(std+1e-7) + mean
 
     return w
 
@@ -362,8 +410,6 @@ def train(save_path,settings):
     
     print("Running: ", save_path)
 
-    save_path += "/"
-
     os.makedirs(save_path,exist_ok=True)
     os.makedirs(save_path + "states/model/",exist_ok=True)
     os.makedirs(save_path + "states/optim/",exist_ok=True)
@@ -448,25 +494,42 @@ def train(save_path,settings):
     # If we want to perform normalization/rescaling, initialize the transform
     if settings.norm_every:
         # Same principle as for svd_norm
-        if settings.norm_fn == weight_center_std:
-            target_std = tree_map_with_path(lambda s,w : jnp.std(w,axis=0) if substrings_in_path(s,"dense","kernel") else None, params)
+        if settings.norm_fn == weight_center_std_uncenter:
+            # Get the standard deviations of the weights in the beginning
+            target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,axis=0),in_axes=(0,))(w) if substrings_in_path(s,"dense","kernel") else None, params)
+            # Function that applies settings.norm_fn to every leaf of the params dictionary
+            # The result is a dictionary that contains the normed params
             norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w,std : settings.norm_fn(w,settings.norm_scale(n,N),std) if substrings_in_path(s,"dense","kernel") else w,tree,target_std))
         else:
-            if settings.change_scale == None:
-                settings.change_scale = lambda n,N,l,L : 1
-            def layerwise_norm_fn(tree,n,N):
-                def layerwise_scale_fun(s,w):
-                    if substrings_in_path(s,"0"):
-                        l = 1
-                    if substrings_in_path(s,"1"):
-                        l = 2
-                    if substrings_in_path(s,"2"):
-                        l = 3
-                    change_scale = settings.change_scale(n,N,l,3)
-                    return (1-change_scale)*w + change_scale*settings.norm_fn(w,settings.norm_scale(n,N)) if substrings_in_path(s,"dense","kernel") else w
-                return tree_map_with_path(layerwise_scale_fun,tree)
-            norm_fn = jax.jit(layerwise_norm_fn)
+            # Function that applies settings.norm_fn to every leaf of the params dictionary
+            # The result is a dictionary that contains the normed params
+            norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w : settings.norm_fn(w,settings.norm_scale(n,N)) if substrings_in_path(s,"kernel") else w,tree))
         
+        # We want to be able to specify how much the weights are changed via:
+        # new_params = (1-change_scale)*params + change_scale*params_normed
+        # If change_scale is not provided via settings, we simply set it to 1. Otherwise change scale is a function that takes:
+        # n -> current step
+        # N -> Max steps
+        # l -> current layer
+        # L -> Max layers
+        if settings.change_scale == None:
+            settings.change_scale = lambda n,N,l,L : 1
+
+        # Assign a depth to each layer and store it in a dictionary.
+        # This is useful since we can now return over the params dict and this dict at the same time and directly have the layer depth for each leaf
+        get_layer_depth_dict = {"params" : {"Dense_0" : {"kernel" : 1, "bias" : 0},"Dense_1" : {"kernel" : 2, "bias" : 0},"Dense_2" : {"kernel" : 3, "bias" : 0}}}
+        
+        # This function calculates the new params as described earlier
+        def change_fn(w,normed_w,n,N,l,L):
+            change_scale = settings.change_scale(n,N,l,L)
+            return (1-change_scale)*w + change_scale*normed_w
+
+        # This function takes as input the params, the normed params, n, N, the dictionary containing the layer depth and L
+        # change_fn is then applied to every common leaf of params, normed_params and the layer depth dictionary 
+        layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dict,L : 
+                                         tree_map_with_path(lambda s,w,normed_w,l : change_fn(w,normed_w,n,N,l,L) 
+                                                            if substrings_in_path(s,"kernel") else w,params,normed_params,layer_depth_dict))
+
     # Perform "settings.steps" on a dataset that is an infinite iterator
     for i,(x_train,y_train)in zip(tqdm(range(settings.steps+1)),ds_stack_iterator(*ds_train_train)):
 
@@ -496,7 +559,9 @@ def train(save_path,settings):
             stats_ckpts["test_acc"][i] = test_acc
 
         if settings.norm_every and i%settings.norm_every == 0:
-            params = norm_fn(params,i,settings.steps)
+            params = layerwise_stepscale_fn(params,norm_fn(params,i,settings.steps),i,settings.steps,get_layer_depth_dict,3)
+
+    
 
         if settings.svd_scale_every and i%settings.svd_scale_every == 0:
             if settings.norm_scale_equivalent:

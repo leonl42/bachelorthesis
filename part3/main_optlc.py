@@ -334,12 +334,14 @@ def train(save_path,settings):
             # Save stats (train/test loss/accuracy)
             with open(save_path+"stats.pkl","wb") as f:
                 pkl.dump(stats_ckpts,f)
-for loss_lc_scale in [0.25,0.2,0.5,0.8]:
-    save_path = "./sidequest/optimlc/"+str(loss_lc_scale)+"/run_1/"
-    train(save_path, SimpleNamespaceNone(num_parallel_exps=2,
-                                                steps=150000,
-                                                lr=0.0001,
-                                                optim="adam",
-                                                eval_every=1000,
-                                                save_dense_every=1000,
-                                                loss_lc_scale = loss_lc_scale))
+
+if __name__ == "__main__":
+    for loss_lc_scale in [0.25,0.2,0.5,0.8]:
+        save_path = "./sidequest/optimlc/"+str(loss_lc_scale)+"/run_1/"
+        train(save_path, SimpleNamespaceNone(num_parallel_exps=2,
+                                                    steps=150000,
+                                                    lr=0.0001,
+                                                    optim="adam",
+                                                    eval_every=1000,
+                                                    save_dense_every=1000,
+                                                    loss_lc_scale = loss_lc_scale))

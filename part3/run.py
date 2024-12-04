@@ -1,5 +1,6 @@
 from main import *
 import argparse
+import jax.numpy as jnp
 
 parser = argparse.ArgumentParser()
 parser.add_argument('optim', type=str)
@@ -7,9 +8,9 @@ parser.add_argument('exp_id', type=str)
 args = parser.parse_args()
 
 steps = 150000
-eval_every = 1000
-save_model_every = 10000
-num_parallel_exps = 5
+eval_every = 5000
+save_model_every = 25000
+num_parallel_exps = 3
 
 # Train model without any regularization
 if args.exp_id == "standard":
@@ -65,17 +66,6 @@ if args.exp_id == "norm":
                                                 eval_every=eval_every,
                                                 save_model_every=save_model_every))
 
-if args.exp_id == "norm_validate":
-    save_path = "./exps_"+args.optim+"/norm/0.5_100/run_2/"
-    train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
-                                        steps=steps,
-                                        optim=args.optim,
-                                        lr=0.0001,
-                                        norm_every=100,
-                                        norm_scale=lambda n,N : 0.5,
-                                        norm_fn=weight_normalize,
-                                        eval_every=eval_every,
-                                        save_model_every=save_model_every))
             
 # Train Weight Normalization (w = c/||w||)
 if args.exp_id == "norm_stepscale":
@@ -86,6 +76,34 @@ if args.exp_id == "norm_stepscale":
                                         lr=0.0001,
                                         norm_every=100,
                                         change_scale = lambda n,N,l,L : (N-n)/N,
+                                        norm_scale=lambda n,N : 0.5,
+                                        norm_fn=weight_normalize,
+                                        eval_every=eval_every,
+                                        save_model_every=save_model_every))
+
+# Train Weight Normalization (w = c/||w||)
+if args.exp_id == "norm_cutoff":
+    save_path = "./exps_"+args.optim+"/norm_cutoff/0.5_100/run_1/"
+    train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
+                                        steps=steps,
+                                        optim=args.optim,
+                                        lr=0.0001,
+                                        norm_every=100,
+                                        change_scale = lambda n,N,l,L : jnp.heaviside((N-n)/N-0.5,0),
+                                        norm_scale=lambda n,N : 0.5,
+                                        norm_fn=weight_normalize,
+                                        eval_every=eval_every,
+                                        save_model_every=save_model_every))
+
+# Train Weight Normalization (w = c/||w||)
+if args.exp_id == "norm_cutoff_reverse":
+    save_path = "./exps_"+args.optim+"/norm_cutoff_reverse/0.5_100/run_1/"
+    train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
+                                        steps=steps,
+                                        optim=args.optim,
+                                        lr=0.0001,
+                                        norm_every=100,
+                                        change_scale = lambda n,N,l,L : jnp.heaviside((0.5-(N-n)/N),1),
                                         norm_scale=lambda n,N : 0.5,
                                         norm_fn=weight_normalize,
                                         eval_every=eval_every,
@@ -120,10 +138,10 @@ if args.exp_id == "norm_stepscale_reverse":
                                         save_model_every=save_model_every))
 
 # Train Weight Normalization with 0 channel centering (w = (w-mean(w))/||w-mean(w)||)
-if args.exp_id == "mean_norm":
+if args.exp_id == "center_norm":
     for norm_scale in [0.1 + x*0.1 for x in range(10)]:
         for norm_every in [1,10,100]:
-            save_path = "./exps_"+args.optim+"/mean_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
+            save_path = "./exps_"+args.optim+"/center_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
             train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
                                                 steps=steps,
                                                 optim=args.optim,
@@ -134,25 +152,39 @@ if args.exp_id == "mean_norm":
                                                 eval_every=eval_every,
                                                 save_model_every=save_model_every))
 
-if args.exp_id == "mean_std":
-    for norm_scale in [0.1 + x*0.1 for x in range(20)]:
+if args.exp_id == "center_norm_uncenter":
+    for norm_scale in [0.1 + x*0.1 for x in range(10)]:
         for norm_every in [1,10,100]:
-            save_path = "./exps_"+args.optim+"/mean_std/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
+            save_path = "./exps_"+args.optim+"/center_norm_uncenter/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
             train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
                                                 steps=steps,
                                                 optim=args.optim,
                                                 lr=0.0001,
                                                 norm_every=norm_every,
                                                 norm_scale=lambda n,N : norm_scale,
-                                                norm_fn=weight_center_std,
+                                                norm_fn=weight_center_normalize_uncenter,
+                                                eval_every=eval_every,
+                                                save_model_every=save_model_every))
+
+if args.exp_id == "center_std_uncenter":
+    for norm_scale in [0.1 + x*0.1 for x in range(20)]:
+        for norm_every in [1,10,100]:
+            save_path = "./exps_"+args.optim+"/center_std_uncenter/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
+            train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
+                                                steps=steps,
+                                                optim=args.optim,
+                                                lr=0.0001,
+                                                norm_every=norm_every,
+                                                norm_scale=lambda n,N : norm_scale,
+                                                norm_fn=weight_center_std_uncenter,
                                                 eval_every=eval_every,
                                                 save_model_every=save_model_every))
 
 # Train Weight Normalization with 0 input centering (w = (w-mean(w))/||w-mean(w)||)
-if args.exp_id == "reverse_mean_norm":
+if args.exp_id == "reverse_center_norm":
     for norm_scale in [0.1 + x*0.1 for x in range(10)]:
         for norm_every in [1,10,100]:
-            save_path = "./exps_"+args.optim+"/reverse_mean_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
+            save_path = "./exps_"+args.optim+"/reverse_center_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_1/"
             train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
                                                 steps=steps,
                                                 optim=args.optim,
@@ -163,18 +195,18 @@ if args.exp_id == "reverse_mean_norm":
                                                 eval_every=eval_every,
                                                 save_model_every=save_model_every))
 
-if args.exp_id == "svd_exp_fit":
-    for shift in [0.5,1]:
-        for scale in [1,1.5,2]:
-            for scale_every in [100]:
-                save_path = "./exps_"+args.optim+"/svd_exp_fit/" + str(shift) + "_" + str(scale) + "_" + str(scale_every) + "/run_1/"
+if args.exp_id == "svd_smoothing":
+    for smoothing_factor in [(12.0,6.0)]:
+        for scale in [0.95,0.98,0.99]:
+            for scale_every in [50]:
+                save_path = "./exps_"+args.optim+"/svd_smoothing/" + str(smoothing_factor) + "_" + str(scale) + "_" + str(scale_every) + "/run_1/"
                 train(save_path, SimpleNamespaceNone(num_parallel_exps=num_parallel_exps,
                                                     steps=steps,
                                                     optim=args.optim,
                                                     lr=0.0001,
                                                     eval_every=eval_every,
-                                                    svd_p = lambda n,N : (shift,scale),
-                                                    svd_fn = svd_exp_fit,
+                                                    svd_p = lambda n,N : (scale,(((N-n)/N)**2)*smoothing_factor[0]+ (1-(((N-n)/N)**2))*smoothing_factor[1]),
+                                                    svd_fn = svd_smoothing,
                                                     svd_scale_every=scale_every,
                                                     save_model_every=save_model_every))
 
