@@ -1,6 +1,4 @@
-
-python run.py adam center_std_uncenter
-python run.py adam center_normalize_uncenter
+python run.py adam center_norm_uncenter
 
 #python run.py adam norm_validate
 #python run.py adam norm_layerwise_stepscale

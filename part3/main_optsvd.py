@@ -1,5 +1,4 @@
-
-  
+import os
 import jax
 jax.config.update('jax_platform_name', 'cpu')
 import tensorflow as tf
@@ -310,21 +309,20 @@ def eval(params,apply_fn,ds,loss_svd_scale):
 
 def train(save_path,settings):
     
-    if os.path.isfile(save_path+ "stats.pkl"):
+    if os.path.isfile(os.path.join(save_path,"stats.pkl")):
         print("Skipping: ", save_path)
         return
     
     print("Running: ", save_path)
 
-
     os.makedirs(save_path,exist_ok=True)
-    os.makedirs(save_path + "states/dense/",exist_ok=True)
-    os.makedirs(save_path + "states/optim/",exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","models"),exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","optim"),exist_ok=True)
     
     #####################################
         ## Initialize the dataset ##
     #####################################
-    builder = tfds.builder("cifar10",data_dir="./datasets/" + settings.dataset_id)
+    builder = tfds.builder("cifar10",data_dir="./datasets")
     builder.download_and_prepare()
     ds_train,ds_test = builder.as_dataset(split=["train", "test"])
 
@@ -388,13 +386,13 @@ def train(save_path,settings):
     for i,(x_train,y_train)in zip(tqdm(range(settings.steps+1)),ds_stack_iterator(*ds_train_train)):
 
         # Save dense params
-        if settings.save_dense_every and random.randint(a=1,b=settings.save_dense_every) == 1:
-            with open(save_path+"states/dense/"+str(i)+".pkl","wb") as f:
+        if settings.save_model_every and random.randint(a=1,b=settings.save_model_every) == 1:
+            with open(os.path.join(save_path,"states","model",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,params),f)
 
         # Save optimizer params
         if settings.save_optim_every and random.randint(a=1,b=settings.save_optim_every) == 1:
-            with open(save_path+"states/optim/"+str(i)+".pkl","wb") as f:
+            with open(os.path.join(save_path,"states","optim",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,opt_params),f)
 
         # Perform the gradient update step
@@ -417,21 +415,5 @@ def train(save_path,settings):
 
             print("Setting: ", settings.loss_svd_scale, "| step: ",i, " [train_acc: ", train_acc, "| test_acc: ",test_acc, " | train_loss_task: ", train_loss_task, " | train_loss_svd: ", train_loss_svd, "]")
             # Save stats (train/test loss/accuracy)
-            with open(save_path+"stats.pkl","wb") as f:
+            with open(os.path.join(save_path,"stats.pkl"),"wb") as f:
                 pkl.dump(stats_ckpts,f)
-
-if __name__ == "__main__":
-
-  parser = argparse.ArgumentParser()
-  parser.add_argument('id', type=str)
-  args = parser.parse_args()
-  for loss_svd_scale in [0.0008]:
-      save_path = "./saves/DenseSVD/"+str(loss_svd_scale)+"/run_" + args.id + "/"
-      train(save_path, SimpleNamespaceNone(num_parallel_exps=3,
-                                                  steps=150000,
-                                                  lr=0.0001,
-                                                  optim="adam",
-                                                  eval_every=5000,
-                                                  save_dense_every=10000,
-                                                  loss_svd_scale = loss_svd_scale,
-                                                  dataset_id = args.id))

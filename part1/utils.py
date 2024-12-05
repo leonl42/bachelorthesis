@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
-from models import VGG11,ResNet,BottleneckResNetBlock
+from models import VGG11,ResNet,BottleneckResNetBlock,layer_depth_resnet50,layer_depth_vgg11
 from prepare_dataset import get_cifar
 from jax.tree_util import tree_map_with_path,keystr,tree_map,tree_leaves_with_path,tree_leaves
 import flax.linen as nn
@@ -110,80 +110,138 @@ def reverse_norms(weights):
     return weights
 
 
-@partial(jax.jit,static_argnums=(-1,))
-def step_layer_weighted_division_norm_fn(w,c,n,N,L,mode="channel"):
-    cond_fn = lambda s,_ : "conv" in keystr(s).lower() and "kernel" in keystr(s).lower()
-    false_fn = lambda _,x : x
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
+def weight_center_normalize(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0 and the channel norms normalized to "scale".
+    """
+    shape = w.shape
+    n_dims = len(shape)
 
-    if mode == "channel":
-        def true_fn(s,x):
-            layer_num=float(keystr(s).lower().split("conv_")[1].split("']")[0])+1
-            step_layer_scale = ((N-n)/N)**((L-layer_num)/L)
-            x =  (1-step_layer_scale)*x + step_layer_scale*x*(c/(c_norm(x)[None,None,None,:] + 1e-9))
-            return x
-    elif mode == "global":
-        def true_fn(s,x):
-            layer_num=float(keystr(s).lower().split("conv_")[1].split("']")[0])+1
-            x =  x*((c/layer_num)/(g_norm(x) + 1e-9))
+    # Compute the channel means
+    mean = jnp.mean(w,axis=tuple(range(n_dims-1)),keepdims=True)
 
-    return conditional_tree_map((w,),cond_fn,true_fn,false_fn)
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
 
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
 
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7)
 
-@partial(jax.jit,static_argnums=(-1,))
-def layer_weighted_division_norm_fn(w,c,n,N,L,mode="channel"):
-    cond_fn = lambda s,_ : "conv" in keystr(s).lower() and "kernel" in keystr(s).lower()
-    false_fn = lambda _,x : x
-    if mode == "channel":
-        def true_fn(s,x):
-            layer_num=float(keystr(s).lower().split("conv_")[1].split("']")[0])+1
-            x =  x*((c/layer_num)/(c_norm(x)[None,None,None,:] + 1e-9))
-            return x
-    elif mode == "global":
-        def true_fn(s,x):
-            layer_num=float(keystr(s).lower().split("conv_")[1].split("']")[0])+1
-            x =  x*((c/layer_num)/(g_norm(x) + 1e-9))
+    return w
 
-    return conditional_tree_map((w,),cond_fn,true_fn,false_fn)
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
+def weight_center_normalize_uncenter(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0, the channel norms normalized to "scale" and channel means scaled back to original mean.
+    """
+    shape = w.shape
+    n_dims = len(shape)
 
-@partial(jax.jit,static_argnums=(-1,))
-def division_norm_fn(w,c,n,N,L,mode="channel"):
-    cond_fn = lambda s,_ : "conv" in keystr(s).lower() and "kernel" in keystr(s).lower()
-    false_fn = lambda _,x : x
-    if mode == "channel":
-        true_fn = lambda _,x : x*(c/(c_norm(x)[None,None,None,:] + 1e-9))
-    elif mode == "global":
-        true_fn = lambda _,x : x*(c/(g_norm(x) + 1e-9))
+    # Compute the channel means
+    mean = jnp.mean(w,axis=tuple(range(n_dims-1)),keepdims=True)
 
-    return conditional_tree_map((w,),cond_fn,true_fn,false_fn)
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
 
-@partial(jax.jit,static_argnums=(-1,))
-def center_division_norm_fn(w,c,n,N,L,mode="channel"):
-    cond_fn = lambda s,_ : "conv" in keystr(s).lower() and "kernel" in keystr(s).lower()
-    false_fn = lambda _,x : x
-    if mode == "channel":
-        true_fn = lambda _,x : c*(x-c_mean(x)[None,None,None,:])/(c_norm(x)[None,None,None,:] + 1e-7)
-    elif mode == "global":
-        true_fn = lambda _,x : c*(x-g_mean(x))/(g_norm(x) + 1e-7)
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
 
-    return conditional_tree_map((w,),cond_fn,true_fn,false_fn)
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7) + mean
 
-@partial(jax.jit,static_argnums=(-1,))
-def division_center_norm_fn(w,c,n,N,L,mode="channel"):
-    cond_fn = lambda s,_ : "conv" in keystr(s).lower() and "kernel" in keystr(s).lower()
-    false_fn = lambda _,x : x
-    if mode == "channel":
-        def true_fn(_,x):
-            x = x/(c_norm(x)[None,None,None,:] + 1e-7)
-            x = x - c_mean(x)[None,None,None,:]
-            return c*x
-    elif mode == "global":
-        def true_fn(_,x):
-            x = x/(g_norm(x) + 1e-7)
-            x = x - g_mean(x)
-            return c*x
-        
-    return conditional_tree_map((w,),cond_fn,true_fn,false_fn)
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None,0))
+def weight_center_std_uncenter(w,scale,target_std):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+        std <float> : target standard deviation
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0 and the channel norms normalized to "scale*target_std".
+    """
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel means
+    mean = jnp.mean(w,axis=tuple(range(n_dims-1)),keepdims=True)
+
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel stds
+    std = jnp.std(w,axis=tuple(range(n_dims-1)),keepdims=True)
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*target_std*w/(std+1e-7) + mean
+
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
+def weight_reverse_center_normalize(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the input means normalized to 0 and the channel norms normalized to "scale".
+    """
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel means
+    if n_dims == 2:
+        mean = jnp.mean(w,axis=1,keepdims=True)
+    else:
+        mean = jnp.mean(w,axis=(0,1,3),keepdims=True)
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7)
+
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
+def weight_normalize(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channel norms normalized to "scale".
+    """
+
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7)
+
+    return w
 
 @partial(jax.vmap, in_axes=(0,None,None))
 def init_model(key,model_input,init_fn):
@@ -217,21 +275,23 @@ def get_model(args):
                     activation_fn = nn.tanh
                 case _:
                     exit("No matching activation_fn ({0}) found".format(args.model.activation_fn))
-            model = VGG11(num_classes=args.model.num_classes,activation_fn = activation_fn)  
-            num_conv_layers = 8
+            model = VGG11(num_classes=args.model.num_classes,activation_fn = activation_fn) 
+            l = layer_depth_vgg11
+            L = 8
         case "resnet50":
             model = ResNet(stage_sizes=[3, 4, 6, 3], block_cls=BottleneckResNetBlock,num_classes=args.model.num_classes)
-            num_conv_layers = 38
+            l = layer_depth_resnet50
+            L = 38
         case _ :
             exit("No matching model ({0}) found".format(args.model.model))
 
-    return model,num_conv_layers
+    return model,l,L
 
 def ds_stack_iterator(*ds):
     for ds_elems in zip(*ds):
         yield jnp.stack([e[0] for e in ds_elems]),jnp.stack([e[1] for e in ds_elems])    
 
-def get_dataset(args):
+def get_dataset(args,bfloat16=False):
     dataset_name = args.dataset.dataset
     data_dir = args.dataset.dataset_path
     batch_size = args.dataset.batch_size
@@ -239,8 +299,8 @@ def get_dataset(args):
     
 
     if dataset_name == "cifar10" or dataset_name == "cifar100":
-        ds_train = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size)[0] for _ in range(parallel_ds_needed)])
-        ds_test = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size)[1] for _ in range(parallel_ds_needed)])
+        ds_train = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16)[0] for _ in range(parallel_ds_needed)])
+        ds_test = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16)[1] for _ in range(parallel_ds_needed)])
 
     else:
         exit("No matching dataset ({0}) found".format(args.dataset_name))
@@ -267,28 +327,29 @@ def get_optimizer(args,helper_weights):
 
 def get_norm_fn(norm_fn):
     match norm_fn:
-        case "channel_division":
-            return lambda *x : division_norm_fn(*x,"channel")
-        case "lw_channel_division":
-            return lambda *x : layer_weighted_division_norm_fn(*x,"channel")
-        case "slw_channel_division":
-            return lambda *x : step_layer_weighted_division_norm_fn(*x,"channel") 
-        case "channel_center_division":
-            return lambda *x : center_division_norm_fn(*x,"channel")
-        case "channel_division_center":
-            return lambda *x : division_center_norm_fn(*x,"channel")
-        case "channel_z":
-            pass
-        case "global_division":
-            return lambda *x : division_norm_fn(*x,"global")
-        case "global_center_division":
-            return lambda *x : center_division_norm_fn(*x,"global")
-        case "global_division_center":
-            return lambda *x : division_center_norm_fn(*x,"global")
-        case "global_z":
-            pass
+        case "norm":
+            return weight_normalize
+        case "center_norm":
+            return weight_center_normalize
+        case "center_norm_uncenter":
+            return weight_center_normalize_uncenter 
+        case "center_std_uncenter":
+            return weight_center_std_uncenter
+        case "reverse_center_normalize":
+            return weight_reverse_center_normalize
         case "identity":
             return lambda *x : x[0]
+        
+def get_change_scale(change_scale):
+    match change_scale:
+        case "layerwise_stepwise":
+            return lambda n,N,l,L : ((N-n)/N)**((L-l)/L)
+        case "layerwise":
+            return lambda n,N,l,L : ((L-l)/L)
+        case "stepwise":
+            return lambda n,N,l,L : ((N-n)/N)
+        case "identity":
+            return lambda n,N,l,L : 1
 
 
 def dict_to_namespace(d):
@@ -306,3 +367,16 @@ def namespace_to_dict(ns):
             d[key] = namespace_to_dict(value)
     
     return d
+
+
+def substrings_in_path(s,*substrings):
+    """
+    Returns True if all strings in *substrings is in s, else False. 
+
+    Takes:
+        s <string> : string for which we want to check if it has substrings inside
+        *substrings <string> : list of strings for which we want to check if all of the appear in s
+    Returns:
+        <boolean>
+    """
+    return all([sub.lower() in keystr(s).lower() for sub in substrings])

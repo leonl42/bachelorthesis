@@ -34,32 +34,32 @@ class VGG11(nn.Module):
 
     @nn.compact
     def __call__(self, x ,train: bool = True):
-        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=128,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=128,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=False)(x)
-        x = self.activation_fn(x)
-        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
-
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
-        x = self.activation_fn(x)
-
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=True)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
@@ -77,7 +77,7 @@ class VGG11(nn.Module):
 def weight_center_normalize(w,scale):
     """
     Takes:
-        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        w <jax.array> : Weight matrix of a dense or conv layer
         scale <float> : scale parameter
     Returns: 
         w <jax.Array> : Weight matrix but with the channels means normalized to 0 and the channel norms normalized to "scale".
@@ -100,11 +100,38 @@ def weight_center_normalize(w,scale):
     return w
 
 @jax.jit
-@partial(jax.vmap,in_axes=(0,None,None))
-def weight_center_std(w,scale,target_std):
+@partial(jax.vmap,in_axes=(0,None))
+def weight_center_normalize_uncenter(w,scale):
     """
     Takes:
-        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0, the channel norms normalized to "scale" and channel means scaled back to original mean.
+    """
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel means
+    mean = jnp.mean(w,axis=tuple(range(n_dims-1)),keepdims=True)
+
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7) + mean
+
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None,0))
+def weight_center_std_uncenter(w,scale,target_std):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
         scale <float> : scale parameter
         std <float> : target standard deviation
     Returns: 
@@ -123,7 +150,7 @@ def weight_center_std(w,scale,target_std):
     std = jnp.std(w,axis=tuple(range(n_dims-1)),keepdims=True)
 
     # Compute the weight matrix with channel norms normalized to "scale"
-    w = scale*target_std*w/(std+1e-7)
+    w = scale*target_std*w/(std+1e-7) + mean
 
     return w
 
@@ -132,7 +159,7 @@ def weight_center_std(w,scale,target_std):
 def weight_reverse_center_normalize(w,scale):
     """
     Takes:
-        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        w <jax.array> : Weight matrix of a dense or conv layer
         scale <float> : scale parameter
     Returns: 
         w <jax.Array> : Weight matrix but with the input means normalized to 0 and the channel norms normalized to "scale".
@@ -161,7 +188,7 @@ def weight_reverse_center_normalize(w,scale):
 def weight_normalize(w,scale):
     """
     Takes:
-        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        w <jax.array> : Weight matrix of a dense or conv layer
         scale <float> : scale parameter
     Returns: 
         w <jax.Array> : Weight matrix but with the channel norms normalized to "scale".
@@ -320,18 +347,15 @@ def eval(params,apply_fn,ds):
 
 def train(save_path,settings):
     
-    if os.path.isfile(save_path+ "stats.pkl"):
+    if os.path.isfile(os.path.join(save_path,"stats.pkl")):
         print("Skipping: ", save_path)
         return
     
     print("Running: ", save_path)
 
-    save_path += "/"
-
     os.makedirs(save_path,exist_ok=True)
-    os.makedirs(save_path + "states/model/",exist_ok=True)
-    os.makedirs(save_path + "states/optim/",exist_ok=True)
-    
+    os.makedirs(os.path.join(save_path,"states","models"),exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","optim"),exist_ok=True)
     #####################################
         ## Initialize the dataset ##
     #####################################
@@ -343,13 +367,14 @@ def train(save_path,settings):
     solve_dict = lambda elem : (elem["image"],elem["label"])
     ds_train,ds_test = ds_train.map(solve_dict),ds_test.map(solve_dict)
 
-    # Cast image dtype to float32
-    cast = lambda img,lbl : (tf.cast(img,tf.dtypes.float32),lbl)
+    # Cast image dtype to bfloat16
+    dtype = tf.dtypes.bfloat16 if settings.bfloat16 else tf.dtypes.float32
+    cast = lambda img,lbl : (tf.cast(img,dtype),lbl)
     ds_train,ds_test = ds_train.map(cast),ds_test.map(cast)
 
     # Normalize images with precalculated mean and std
-    mean = tf.convert_to_tensor([0.32768, 0.32768, 0.32768])[None,None,:]
-    std = tf.convert_to_tensor([0.27755222, 0.26925606, 0.2683012 ])[None,None,:]
+    mean = tf.convert_to_tensor([0.32768, 0.32768, 0.32768],dtype=dtype)[None,None,:]
+    std = tf.convert_to_tensor([0.27755222, 0.26925606, 0.2683012 ],dtype=dtype)[None,None,:]
     normalize = lambda img,lbl : ((img/255-mean)/std,lbl)
 
     # Prepare a number of "settings.num_parallel_exps" independent datasets for training
@@ -391,41 +416,65 @@ def train(save_path,settings):
 
     else:
         raise Exception("Optim not known")
-        
-
-    
 
     opt_params = init_optimizer(params,optim.init)
 
+    if settings.bfloat16:
+        params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16),params)
+        opt_params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16) if jnp.isdtype(x,jnp.float32) else x,opt_params)
+
     # If we want to perform normalization/rescaling, initialize the transform
     if settings.norm_every:
-        # Same principle as for svd_norm
-        if settings.norm_fn == weight_center_std:
-            target_std = tree_map_with_path(lambda s,w : jnp.std(w,axis=tuple(range(len(w.shape)-1)),keepdims=True) if substrings_in_path(s,"kernel") else None, params)
-            norm_fn =  jax.jit(lambda tree,scale : tree_map_with_path(lambda s,w,std : settings.norm_fn(w,scale,std) if substrings_in_path(s,"kernel") else w,tree,target_std))
+        # If we want to use the normalization scheme proposed by Niehaus et al. 2024, we have to calculate the standard deviation before training
+        if settings.norm_fn == weight_center_std_uncenter:
+            # Get the standard deviations of the weights in the beginning
+            target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,axis=tuple(range(len(x.shape)-1)),keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"kernel") else None, params)
+            # Function that applies settings.norm_fn to every leaf of the params dictionary
+            # The result is a dictionary that contains the normed params
+            norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w,std : settings.norm_fn(w,settings.norm_scale(n,N),std) if substrings_in_path(s,"kernel") else w,tree,target_std))
         else:
-            if settings.change_scale == None:
-                settings.change_scale = lambda n,N,l,L : 1
-            def layerwise_norm_fn(tree,n,N):
-                def layerwise_scale_fun(s,w):
-                    # TODO: implement layerwise scaling
-                    change_scale = settings.change_scale(n,N,0,3)
-                    return (1-change_scale)*w + change_scale*settings.norm_fn(w,settings.norm_scale(n,N)) if substrings_in_path(s,"kernel") else w
-                return tree_map_with_path(layerwise_scale_fun,tree)
-            norm_fn = jax.jit(layerwise_norm_fn)
+            # Function that applies settings.norm_fn to every leaf of the params dictionary
+            # The result is a dictionary that contains the normed params
+            norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w : settings.norm_fn(w,settings.norm_scale(n,N)) if substrings_in_path(s,"kernel") else w,tree))
         
+        # We want to be able to specify how much the weights are changed via:
+        # new_params = (1-change_scale)*params + change_scale*params_normed
+        # If change_scale is not provided via settings, we simply set it to 1. Otherwise change scale is a function that takes:
+        # n -> current step
+        # N -> Max steps
+        # l -> current layer
+        # L -> Max layers
+        if settings.change_scale == None:
+            settings.change_scale = lambda n,N,l,L : 1
+
+        # Assign a depth to each layer and store it in a dictionary.
+        # This is useful since we can now map over the params dict and this dict at the same time and directly have the layer depth for each lef
+        get_layer_depth_dict = {"params" : {"Conv_0" : {"kernel" : 1, "bias" : 0},"Conv_1" : {"kernel" : 2, "bias" : 0},"Conv_2" : {"kernel" : 3, "bias" : 0}
+                                                ,"Conv_3" : {"kernel" : 4, "bias" : 0},"Conv_4" : {"kernel" : 5, "bias" : 0},"Conv_5" : {"kernel" : 6, "bias" : 0}
+                                                ,"Conv_6" : {"kernel" : 7, "bias" : 0},"Conv_7" : {"kernel" : 8, "bias" : 0}, "out" : {"kernel" : 9, "bias" : 0}}}
+        
+        # This function calculates the new params as described earlier
+        def change_fn(w,normed_w,n,N,l,L):
+            change_scale = settings.change_scale(n,N,l,L)
+            return (1-change_scale)*w + change_scale*normed_w
+        
+        # This function takes as input the params, the normed params, n, N, the dictionary containing the layer depth and L
+        # change_fn is then applied to every common leaf of params, normed_params and the layer depth dictionary 
+        layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dict,L : 
+                                         tree_map_with_path(lambda s,w,normed_w,l : change_fn(w,normed_w,n,N,l,L) 
+                                                            if substrings_in_path(s,"kernel") else w,params,normed_params,layer_depth_dict))
+
     # Perform "settings.steps" on a dataset that is an infinite iterator
     for i,(x_train,y_train)in zip(tqdm(range(settings.steps+1)),ds_stack_iterator(*ds_train_train)):
 
-        
         # Save model params
         if settings.save_model_every and random.randint(a=1,b=settings.save_model_every) == 1:
-            with open(save_path+"states/model/"+str(i)+".pkl","wb") as f:
+            with open(os.path.join(save_path,"states","model",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,params),f)
 
         # Save optimizer params
         if settings.save_optim_every and random.randint(a=1,b=settings.save_optim_every) == 1:
-            with open(save_path+"states/optim/"+str(i)+".pkl","wb") as f:
+            with open(os.path.join(save_path,"states","optim",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,opt_params),f)
 
         # Perform the gradient update step
@@ -442,11 +491,13 @@ def train(save_path,settings):
             stats_ckpts["test_loss"][i] = test_loss
             stats_ckpts["test_acc"][i] = test_acc
 
-        if settings.norm_every and i%settings.norm_every == 0:
-            params = norm_fn(params,i,settings.steps)
+            # Save stats (train/test loss/accuracy)
+            with open(os.path.join(save_path,"stats.pkl"),"wb") as f:
+                pkl.dump(stats_ckpts,f)
+    
 
-    # Save stats (train/test loss/accuracy)
-    with open(save_path+"stats.pkl","wb") as f:
-        pkl.dump(stats_ckpts,f)
+        if settings.norm_every and i%settings.norm_every == 0:
+            params = layerwise_stepscale_fn(params,norm_fn(params,i,settings.steps),i,settings.steps,get_layer_depth_dict,9)
+
     
 

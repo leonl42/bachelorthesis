@@ -1,8 +1,6 @@
 import os
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.25"
-  
 import jax
-
+jax.config.update('jax_platform_name', 'cpu')
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
@@ -404,15 +402,15 @@ def eval(params,apply_fn,ds):
 
 def train(save_path,settings):
     
-    if os.path.isfile(save_path+ "stats.pkl"):
+    if os.path.isfile(os.path.join(save_path,"stats.pkl")):
         print("Skipping: ", save_path)
         return
     
     print("Running: ", save_path)
 
     os.makedirs(save_path,exist_ok=True)
-    os.makedirs(save_path + "states/model/",exist_ok=True)
-    os.makedirs(save_path + "states/optim/",exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","models"),exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","optim"),exist_ok=True)
     
     #####################################
         ## Initialize the dataset ##
@@ -536,12 +534,12 @@ def train(save_path,settings):
         
         # Save dense params
         if settings.save_model_every and random.randint(a=1,b=settings.save_model_every) == 1:
-            with open(save_path+"states/model/"+str(i)+".pkl","wb") as f:
+            with open(os.path.join(save_path,"states","model",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,params),f)
 
         # Save optimizer params
         if settings.save_optim_every and random.randint(a=1,b=settings.save_optim_every) == 1:
-            with open(save_path+"states/optim/"+str(i)+".pkl","wb") as f:
+            with open(os.path.join(save_path,"states","optim",str(i)+".pkl"), "wb") as f:
                 pkl.dump(tree_map(lambda x : np.asarray(x) ,opt_params),f)
 
         # Perform the gradient update step
@@ -558,11 +556,14 @@ def train(save_path,settings):
             stats_ckpts["test_loss"][i] = test_loss
             stats_ckpts["test_acc"][i] = test_acc
 
+            # Save stats (train/test loss/accuracy)
+            with open(os.path.join(save_path,"stats.pkl"),"wb") as f:
+                pkl.dump(stats_ckpts,f)
+
         if settings.norm_every and i%settings.norm_every == 0:
             params = layerwise_stepscale_fn(params,norm_fn(params,i,settings.steps),i,settings.steps,get_layer_depth_dict,3)
 
     
-
         if settings.svd_scale_every and i%settings.svd_scale_every == 0:
             if settings.norm_scale_equivalent:
                 # In case "settings.norm_scale_equivalent" is set, we dont perform svd_scale, but instead we set the Dense layers parameter norms
@@ -575,9 +576,7 @@ def train(save_path,settings):
                 # In case "settings.norm_scale_equivalent" is not set, "svd_scale" is directly applied to the parameters
                 params = svd_scale_fn(params,i,settings.steps)
 
-    # Save stats (train/test loss/accuracy)
-    with open(save_path+"stats.pkl","wb") as f:
-        pkl.dump(stats_ckpts,f)
+
     
 
 def exp_decayed(c):
