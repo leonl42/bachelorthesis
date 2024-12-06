@@ -3,7 +3,7 @@
 import os
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.5"
 import jax
-
+jax.numpy.ones((32,4))*jax.numpy.zeros((32,4))
 import tensorflow as tf
 gpus = tf.config.experimental.list_physical_devices('GPU')
 for gpu in gpus:
@@ -11,11 +11,9 @@ for gpu in gpus:
 
 import random
 import jax.numpy as jnp
-from jax.numpy.linalg import vector_norm
 import flax.linen as nn
 from functools import partial
 import optax
-import matplotlib.pyplot as plt
 from jax.tree_util import keystr,tree_map_with_path,tree_map
 import numpy as np
 import tensorflow_datasets as tfds

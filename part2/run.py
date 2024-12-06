@@ -70,7 +70,7 @@ if args.exp_id == "norm_layerwise_stepscale":
 if args.exp_id == "center_norm":
     for norm_scale in [0.5 + x*0.1 for x in range(10)]:
         for norm_every in [1,10,100]:
-            save_path = "./exps_"+args.optim+"/mean_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_" + args.run_id
+            save_path = "./exps_"+args.optim+"/center_norm/" + str(norm_scale) + "_" + str(norm_every) + "/run_" + args.run_id
             train(save_path, SimpleNamespaceNone(num_parallel_exps=args.num_parallel_exps,
                                                 steps=args.steps,
                                                 optim=args.optim,
