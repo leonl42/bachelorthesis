@@ -1,8 +1,8 @@
 backup/
 part1/__pycache__/
 part1/datasets/
-
 part1/*/*/*
+
 !part1/*/*/settings.json
 !part1/*/*/train_stats
 !part1/*/*/test_stats
