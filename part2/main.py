@@ -183,6 +183,35 @@ def weight_reverse_center_normalize(w,scale):
 
 @jax.jit
 @partial(jax.vmap,in_axes=(0,None))
+def weight_reverse_center_normalize_uncenter(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the input means normalized to 0, the channel norms normalized to "scale" and channel means scaled back to original mean.
+    """
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel means
+    if n_dims == 2:
+        mean = jnp.mean(w,axis=1,keepdims=True)
+    else:
+        mean = jnp.mean(w,axis=(0,1,3),keepdims=True)
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7) + mean
+
+    return w
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
 def weight_normalize(w,scale):
     """
     Takes:

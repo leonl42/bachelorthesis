@@ -12,7 +12,6 @@ from jax.numpy.linalg import vector_norm
 import flax.linen as nn
 from functools import partial
 import optax
-import matplotlib.pyplot as plt
 from jax.tree_util import keystr,tree_map_with_path,tree_map
 import numpy as np
 import tensorflow_datasets as tfds

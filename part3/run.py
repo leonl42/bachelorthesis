@@ -128,7 +128,7 @@ if args.exp_id == "svd_smoothing":
                                                     save_model_every=args.save_model_every))
 
 if args.exp_id == "DenseSVD":
-    for loss_svd_scale in [0.0008]:
+    for loss_svd_scale in [0.0005,0.0011,0.00014,0.00017]:
         save_path = "./exps_" + args.optim + "/DenseSVD/"+str(loss_svd_scale)+"/run_" + args.run_id
         train_optsvd(save_path, SimpleNamespaceNone(num_parallel_exps=args.num_parallel_exps,
                                                     steps=args.steps,

@@ -115,6 +115,7 @@ layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dic
                                     tree_map_with_path(lambda s,w,normed_w,l : change_fn(w,normed_w,n,N,l,L) 
                                                     if substrings_in_path(s,"conv","kernel") else w,params,normed_params,layer_depth_dict))
 
+print("Running: {0}".format(parse_args.save_path))
 
 for i,(img,lbl) in zip(tqdm(range(args.at_step,args.num_steps+1)),ds_train):
 
