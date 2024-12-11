@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
-from models import VGG11,ResNet,BottleneckResNetBlock,layer_depth_resnet50,layer_depth_vgg11
+from models import VGG11,VGG11_slim,ResNet,BottleneckResNetBlock,layer_depth_resnet50,layer_depth_vgg11
 from prepare_dataset import get_cifar
 from jax.tree_util import tree_map_with_path,keystr,tree_map,tree_leaves_with_path,tree_leaves
 import flax.linen as nn
@@ -223,6 +223,36 @@ def weight_reverse_center_normalize(w,scale):
 
 @jax.jit
 @partial(jax.vmap,in_axes=(0,None))
+def weight_reverse_center_normalize_uncenter(w,scale):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+    Returns: 
+        w <jax.Array> : Weight matrix but with the input means normalized to 0, the channel norms normalized to "scale" and channel means scaled back to original mean.
+    """
+    shape = w.shape
+    n_dims = len(shape)
+
+    # Compute the channel means
+    if n_dims == 2:
+        mean = jnp.mean(w,axis=1,keepdims=True)
+    else:
+        mean = jnp.mean(w,axis=(0,1,3),keepdims=True)
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel norms
+    norm = jnp.expand_dims(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),axis=tuple(range(n_dims-1)))
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*w/(norm+1e-7) + mean
+
+    return w
+
+
+@jax.jit
+@partial(jax.vmap,in_axes=(0,None))
 def weight_normalize(w,scale):
     """
     Takes:
@@ -276,6 +306,17 @@ def get_model(args):
                 case _:
                     exit("No matching activation_fn ({0}) found".format(args.model.activation_fn))
             model = VGG11(num_classes=args.model.num_classes,activation_fn = activation_fn) 
+            l = layer_depth_vgg11
+            L = 8
+        case "vgg11_slim":
+            match args.model.activation_fn:
+                case "relu":
+                    activation_fn = nn.relu
+                case "tanh":
+                    activation_fn = nn.tanh
+                case _:
+                    exit("No matching activation_fn ({0}) found".format(args.model.activation_fn))
+            model = VGG11_slim(num_classes=args.model.num_classes,activation_fn = activation_fn) 
             l = layer_depth_vgg11
             L = 8
         case "resnet50":
@@ -337,6 +378,8 @@ def get_norm_fn(norm_fn):
             return weight_center_std_uncenter
         case "reverse_center_normalize":
             return weight_reverse_center_normalize
+        case "reverse_center_normalize_uncenter":
+            return weight_reverse_center_normalize_uncenter
         case "identity":
             return lambda *x : x[0]
         

@@ -151,6 +151,58 @@ class VGG11(nn.Module):
         return x
 
 
+class VGG11_slim(nn.Module):
+    num_classes: int
+    activation_fn: any
+
+    @nn.compact
+    def __call__(self, x ,train: bool = True):
+        x = nn.Conv(features=8,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=16,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=32,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=32,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.avg_pool(x,window_shape=(1,1),strides=(1,1))
+
+        x = x.reshape(x.shape[0],-1)
+
+        x = nn.Dense(features=self.num_classes,name="out")(x)
+
+        return x
+
+
 class Extendable(nn.Module):
     num_classes: int
     num_layers: int

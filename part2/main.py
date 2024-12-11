@@ -69,6 +69,74 @@ class VGG11(nn.Module):
 
         return x
 
+class VGG11_slim(nn.Module):
+    num_classes: int
+    activation_fn: any
+
+    @nn.compact
+    def __call__(self, x ,train: bool = True):
+        x = nn.Conv(features=8,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=16,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=32,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=32,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.avg_pool(x,window_shape=(1,1),strides=(1,1))
+
+        x = x.reshape(x.shape[0],-1)
+
+        x = nn.Dense(features=self.num_classes,name="out")(x)
+
+        return x
+
+class VGG11_short(nn.Module):
+    num_classes: int
+    activation_fn: any
+
+    @nn.compact
+    def __call__(self, x ,train: bool = True):
+        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=True)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.avg_pool(x,window_shape=(1,1),strides=(1,1))
+
+        x = x.reshape(x.shape[0],-1)
+
+        x = nn.Dense(features=self.num_classes,name="out")(x)
+
+        return x
+
 
 @jax.jit
 @partial(jax.vmap,in_axes=(0,None))
@@ -417,7 +485,12 @@ def train(save_path,settings):
     stats_ckpts = {"train_acc" : {}, "test_acc" : {}, "train_loss" : {}, "test_loss" : {}}
 
     # Initialize the model and ensure that each model is initialized with a different random seed
-    model = VGG11(10,nn.relu)
+    if settings.model == "short":
+        model = VGG11_short(10,nn.relu)
+    if settings.model == "slim":
+        model = VGG11_slim(10,nn.relu)
+    else:
+        model = VGG11(10,nn.relu)
     split_key = jax.random.key(random.randint(1,2473673438))
     # Set seed for pythons random for determining time steps where the model is saved and evaluated
     random.seed(42)
