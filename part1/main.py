@@ -90,6 +90,12 @@ if args.norm.norm_fn == "center_std_uncenter":
     # Function that applies settings.norm_fn to every leaf of the params dictionary
     # The result is a dictionary that contains the normed params
     norm_fn =  jax.jit(lambda tree : tree_map_with_path(lambda s,w,std : get_norm_fn(args.norm.norm_fn)(w,args.norm.norm_multiply,std) if substrings_in_path(s,"conv","kernel") else w,tree,target_std))
+elif args.norm.norm_fn == "global_center_std_uncenter":
+    # Get the standard deviations of the weights in the beginning
+    target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"conv","kernel") else None, weights)
+    # Function that applies settings.norm_fn to every leaf of the params dictionary
+    # The result is a dictionary that contains the normed params
+    norm_fn =  jax.jit(lambda tree : tree_map_with_path(lambda s,w,std : get_norm_fn(args.norm.norm_fn)(w,args.norm.norm_multiply,std) if substrings_in_path(s,"conv","kernel") else w,tree,target_std))
 else:
     # Function that applies settings.norm_fn to every leaf of the params dictionary
     # The result is a dictionary that contains the normed params

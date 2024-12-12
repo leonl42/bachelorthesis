@@ -221,6 +221,32 @@ def weight_center_std_uncenter(w,scale,target_std):
     return w
 
 @jax.jit
+@partial(jax.vmap,in_axes=(0,None,0))
+def weight_global_center_std_uncenter(w,scale,target_std):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense or conv layer
+        scale <float> : scale parameter
+        std <float> : target standard deviation
+    Returns: 
+        w <jax.Array> : Weight matrix but with the channels means normalized to 0 and the channel norms normalized to "scale*target_std".
+    """
+
+    # Compute the channel means
+    mean = jnp.mean(w,keepdims=True)
+
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel stds
+    std = jnp.std(w,keepdims=True)
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*target_std*w/(std+1e-7) + mean
+
+    return w
+
+@jax.jit
 @partial(jax.vmap,in_axes=(0,None))
 def weight_reverse_center_normalize(w,scale):
     """
@@ -525,10 +551,16 @@ def train(save_path,settings):
 
     # If we want to perform normalization/rescaling, initialize the transform
     if settings.norm_every:
-        # If we want to use the normalization scheme proposed by Niehaus et al. 2024, we have to calculate the standard deviation before training
+        # If we want to use the normalization scheme proposed by Niehaus et al. 2024, we have to c,axis=tuple(range(len(x.shape)-1))alculate the standard deviation before training
         if settings.norm_fn == weight_center_std_uncenter:
             # Get the standard deviations of the weights in the beginning
             target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,axis=tuple(range(len(x.shape)-1)),keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"kernel") else None, params)
+            # Function that applies settings.norm_fn to every leaf of the params dictionary
+            # The result is a dictionary that contains the normed params
+            norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w,std : settings.norm_fn(w,settings.norm_scale(n,N),std) if substrings_in_path(s,"kernel") else w,tree,target_std))
+        elif settings.norm_fn == weight_global_center_std_uncenter:
+            # Get the standard deviations of the weights in the beginning
+            target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"kernel") else None, params)
             # Function that applies settings.norm_fn to every leaf of the params dictionary
             # The result is a dictionary that contains the normed params
             norm_fn =  jax.jit(lambda tree,n,N : tree_map_with_path(lambda s,w,std : settings.norm_fn(w,settings.norm_scale(n,N),std) if substrings_in_path(s,"kernel") else w,tree,target_std))

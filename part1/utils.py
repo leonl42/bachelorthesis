@@ -193,6 +193,31 @@ def weight_center_std_uncenter(w,scale,target_std):
     return w
 
 @jax.jit
+@partial(jax.vmap,in_axes=(0,None,0))
+def weight_global_center_std_uncenter(w,scale,target_std):
+    """
+    Takes:
+        w <jax.array> : Weight matrix of a dense layer of shape [inC,outC]
+        scale <float> : scale parameter
+        std <float> : target standard deviation
+    Returns: 
+        w <jax.Array> : Weight matrix but with the weight means normalized to 0 and the weight std normalized to "scale*target_std".
+    """
+    # Compute the channel means
+    mean = jnp.mean(w,keepdims=True)
+
+    # Compute the weight matrix with channel means normalized to 0
+    w = (w-mean)
+
+    # Compute the channel stds
+    std = jnp.std(w,keepdims=True)
+
+    # Compute the weight matrix with channel norms normalized to "scale"
+    w = scale*target_std*w/(std+1e-7) + mean
+
+    return w
+
+@jax.jit
 @partial(jax.vmap,in_axes=(0,None))
 def weight_reverse_center_normalize(w,scale):
     """
@@ -376,6 +401,8 @@ def get_norm_fn(norm_fn):
             return weight_center_normalize_uncenter 
         case "center_std_uncenter":
             return weight_center_std_uncenter
+        case "global_center_std_uncenter":
+            return weight_global_center_std_uncenter
         case "reverse_center_normalize":
             return weight_reverse_center_normalize
         case "reverse_center_normalize_uncenter":
