@@ -13,7 +13,7 @@ parser.add_argument('--save_model_every', type=int,default=None)
 parser.add_argument('--num_parallel_exps', type=int,default=3)
 args = parser.parse_args()
 
-save_path = "./exps_"+args.optim+"/standard/"+str(args.lr)+"/run_" + args.run_id
+save_path = "./exps_"+args.optim+"/standard"+args.suffix+"/"+str(args.lr)+"/run_" + args.run_id
 train(save_path, SimpleNamespaceNone(num_parallel_exps=args.num_parallel_exps,
                                     steps=args.steps,
                                     lr=args.lr,
