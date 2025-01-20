@@ -4,3 +4,4 @@ backup/
 **/states
 **/hessians
 **/grads
+snapshot.pkl
