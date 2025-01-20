@@ -3,9 +3,11 @@ import jax.numpy as jnp
 import optax
 from functools import partial
 from models import VGG11,VGG11_slim,ResNet,BottleneckResNetBlock,layer_depth_resnet50,layer_depth_vgg11
-from prepare_dataset import get_cifar
+import tensorflow as tf
+import tensorflow_datasets as tfds
 from jax.tree_util import tree_map_with_path,keystr,tree_map,tree_leaves_with_path,tree_leaves
 import flax.linen as nn
+import copy
 from types import SimpleNamespace
 
 @partial(jax.jit,static_argnums=(4,))
@@ -79,7 +81,7 @@ def c_norm(x):
 def c_mean(x):
     return jnp.mean(x,axis=(0,1,2),keepdims=False)
 
-def b_mean(x):
+def r_mean(x):
     return jnp.mean(x,axis=(0,1,3),keepdims=False)
 
 def g_mean(x):
@@ -353,6 +355,38 @@ def get_model(args):
 
     return model,l,L
 
+tfds.display_progress_bar(enable=False)
+
+def get_cifar(name,data_dir="./datasets/",batch_size = 128, shuffle_buffer = 5000, prefetch= tf.data.AUTOTUNE,repeats=-1, bfloat16 = False, cutoff_train_set = None,cutoff_test_set = None):
+    builder = tfds.builder(name,data_dir=data_dir)
+    builder.download_and_prepare()
+    ds_train,ds_test = builder.as_dataset(split=["train", "test"])
+
+    solve_dict = lambda elem : (elem["image"],elem["label"])
+    ds_train,ds_test = ds_train.map(solve_dict),ds_test.map(solve_dict)
+
+    dtype = tf.dtypes.bfloat16 if bfloat16 else tf.dtypes.float32
+    cast = lambda img,lbl : (tf.cast(img,dtype),lbl)
+    ds_train,ds_test = ds_train.map(cast),ds_test.map(cast)
+
+    mean = tf.convert_to_tensor([0.32768, 0.32768, 0.32768],dtype=dtype)[None,None,:]
+    std = tf.convert_to_tensor([0.27755222, 0.26925606, 0.2683012 ],dtype=dtype)[None,None,:]
+
+    normalize = lambda img,lbl : ((img/255-mean)/std,lbl)
+
+    ds_train,ds_test = ds_train.map(normalize),ds_test.map(normalize)
+
+    if cutoff_train_set:
+        ds_train = ds_train.shuffle(buffer_size=50000).take(cutoff_train_set).cache()
+    if cutoff_test_set:
+        ds_test = ds_test.shuffle(buffer_size=10000).take(cutoff_test_set).cache()
+
+    prepare = lambda ds : ds.repeat(repeats).shuffle(buffer_size=shuffle_buffer).batch(batch_size,drop_remainder=True).prefetch(prefetch)
+    ds_train,ds_test = prepare(ds_train), prepare(ds_test)
+
+    return ds_train.as_numpy_iterator(),ds_test.as_numpy_iterator()
+
+
 def ds_stack_iterator(*ds):
     for ds_elems in zip(*ds):
         yield jnp.stack([e[0] for e in ds_elems]),jnp.stack([e[1] for e in ds_elems])    
@@ -362,12 +396,14 @@ def get_dataset(args,bfloat16=False):
     data_dir = args.dataset.dataset_path
     batch_size = args.dataset.batch_size
     parallel_ds_needed = args.num_devices*args.num_experiments_per_device
+    cutoff_train_set = args.dataset.cutoff_train_set
+    cutoff_test_set = args.dataset.cutoff_test_set
+    
     
 
     if dataset_name == "cifar10" or dataset_name == "cifar100":
-        ds_train = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16)[0] for _ in range(parallel_ds_needed)])
-        ds_test = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16)[1] for _ in range(parallel_ds_needed)])
-
+        ds_train = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16,cutoff_train_set=cutoff_train_set)[0] for _ in range(parallel_ds_needed)])
+        ds_test = ds_stack_iterator(*[get_cifar(name=dataset_name,data_dir=data_dir,batch_size=batch_size,bfloat16=bfloat16,cutoff_test_set=cutoff_test_set)[1] for _ in range(parallel_ds_needed)])
     else:
         exit("No matching dataset ({0}) found".format(args.dataset_name))
 
@@ -421,22 +457,29 @@ def get_change_scale(change_scale):
         case "identity":
             return lambda n,N,l,L : 1
 
+class SimpleNamespaceNone(SimpleNamespace):
+    # Returns None instead of throwing an error when an undefined name is accessed
+    def __getattr__(self, _):
+        return None
 
 def dict_to_namespace(d):
     for key,value in d.items():
         if type(value) == dict:
             d[key] = dict_to_namespace(value)
     
-    return SimpleNamespace(**d)
+    return SimpleNamespaceNone(**d)
 
 
 def namespace_to_dict(ns):
+    out_dict = {}
     d = vars(ns)
     for key,value in d.items():
-        if type(value) == SimpleNamespace:
-            d[key] = namespace_to_dict(value)
+        if isinstance(value,SimpleNamespace) or isinstance(value,SimpleNamespaceNone):
+            out_dict[key] = namespace_to_dict(value)
+        else:
+            out_dict[key] = value
     
-    return d
+    return out_dict
 
 
 def substrings_in_path(s,*substrings):

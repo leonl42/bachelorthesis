@@ -167,7 +167,7 @@ def cap_2(w):
     return (jnp.max(w["params"]["DenseSVD_0"]["svd"])*jnp.max(w["params"]["DenseSVD_1"]["svd"])*jnp.max(w["params"]["DenseSVD_2"]["svd"]))**2
 
 def cap_F(w):
-    return (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_0"]["svd"])))*jnp.max(w["params"]["DenseSVD_0"]["svd"]))**2 + (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_1"]["svd"])))*jnp.max(w["params"]["DenseSVD_1"]["svd"]))**2 + (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_2"]["svd"])))*jnp.max(w["params"]["DenseSVD_2"]["svd"]))**2
+    return (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_0"]["svd"])))/jnp.max(w["params"]["DenseSVD_0"]["svd"]))**2 + (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_1"]["svd"])))/jnp.max(w["params"]["DenseSVD_1"]["svd"]))**2 + (jnp.sqrt(jnp.sum(jnp.square(w["params"]["DenseSVD_2"]["svd"])))/jnp.max(w["params"]["DenseSVD_2"]["svd"]))**2
 
 def get_loss_fn(params,x,y,apply_fn,loss_svd_scale):
     """
@@ -412,6 +412,8 @@ def train(save_path,settings):
             stats_ckpts["test_loss_task"][i] = test_loss_task
             stats_ckpts["test_loss_svd"][i] = test_loss_svd
             stats_ckpts["test_acc"][i] = test_acc
+
+            #print("Train acc: {0} | Test acc: {1}".format(float(jnp.mean(train_acc)),float(jnp.mean(test_acc))))
 
             print("Setting: ", settings.loss_svd_scale, "| step: ",i, " [train_acc: ", train_acc, "| test_acc: ",test_acc, " | train_loss_task: ", train_loss_task, " | train_loss_svd: ", train_loss_svd, "]")
             # Save stats (train/test loss/accuracy)

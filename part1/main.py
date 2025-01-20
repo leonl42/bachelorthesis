@@ -22,7 +22,6 @@ parse_args = parser.parse_args()
 with open(parse_args.save_path + "settings.json", "r") as f:
     args_dict = json.load(f)
 args = dict_to_namespace(args_dict)
-
 args.save_path = parse_args.save_path
 
 if parse_args.reset:
@@ -129,8 +128,10 @@ for i,(img,lbl) in zip(tqdm(range(args.at_step,args.num_steps+1)),ds_train):
     keys = jax.random.split(split_key,num=args.num_devices*args.num_experiments_per_device+1)
     sk,split_key = keys[:-1],keys[-1]
 
-    if i%args.norm.norm_every == 0 and args.norm.norm_every != -1:
-        weights = layerwise_stepscale_fn(weights,norm_fn(weights),i,args.num_steps,layer_depth_dict,num_layers)
+    if args.norm.start_after is None or i>=args.norm.start_after:
+        if args.norm.stop_after is None or i<=args.norm.stop_after:
+            if i%args.norm.norm_every == 0 and args.norm.norm_every != -1:
+                weights = layerwise_stepscale_fn(weights,norm_fn(weights),i,args.num_steps,layer_depth_dict,num_layers)
 
     if i%args.optimizer.apply_wd_every == 0 and args.optimizer.apply_wd_every != -1:
         pass
@@ -161,8 +162,8 @@ for i,(img,lbl) in zip(tqdm(range(args.at_step,args.num_steps+1)),ds_train):
 
         args.at_step = i
         with open(args.save_path + "settings.json", "w") as f:
-            json.dump(namespace_to_dict(copy.deepcopy(args)),f)
-
+            json.dump(namespace_to_dict(args),f)
+    
     if i%args.save_args.save_train_stats_every == 0 and args.save_args.save_train_stats_every != -1:
         with open(args.save_path + "train_stats/" + str(i) + ".pkl", "wb") as f:
             pkl.dump({"loss" : aux["loss"], "acc" : aux["acc"]},f)

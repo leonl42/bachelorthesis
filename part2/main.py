@@ -466,20 +466,7 @@ def eval(params,apply_fn,ds):
 
     return loss,acc
 
-def train(save_path,settings):
-    
-    if os.path.isfile(os.path.join(save_path,"stats.pkl")):
-        print("Skipping: ", save_path)
-        return
-    
-    print("Running: ", save_path)
-
-    os.makedirs(save_path,exist_ok=True)
-    os.makedirs(os.path.join(save_path,"states","models"),exist_ok=True)
-    os.makedirs(os.path.join(save_path,"states","optim"),exist_ok=True)
-    #####################################
-        ## Initialize the dataset ##
-    #####################################
+def get_dataset(settings):
     builder = tfds.builder("cifar10",data_dir="./datasets")
     builder.download_and_prepare()
     ds_train,ds_test = builder.as_dataset(split=["train", "test"])
@@ -508,7 +495,23 @@ def train(save_path,settings):
     # non infinite iterator to evaluate the model on the test set
     ds_test_eval = [ds_test.shuffle(5000).batch(1000).prefetch(64) for _ in range(settings.num_parallel_exps)]
 
-    stats_ckpts = {"train_acc" : {}, "test_acc" : {}, "train_loss" : {}, "test_loss" : {}}
+    return ds_train_train,ds_train_eval,ds_test_eval
+
+def save_snapshot(save_path, stats, params, opt_params, at_step):
+    with open(os.path.join(save_path,"snapshot.pkl"), "wb") as f:
+        pkl.dump((stats,params,opt_params,at_step),f)
+
+def load_snapshot(save_path):
+    with open(os.path.join(save_path,"snapshot.pkl"), "rb") as f:
+        return pkl.load(f)
+
+def train(save_path,settings):
+
+    print("Running: ", save_path)
+
+    os.makedirs(save_path,exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","models"),exist_ok=True)
+    os.makedirs(os.path.join(save_path,"states","optim"),exist_ok=True)
 
     # Initialize the model and ensure that each model is initialized with a different random seed
     if settings.model == "short":
@@ -521,19 +524,18 @@ def train(save_path,settings):
     # Set seed for pythons random for determining time steps where the model is saved and evaluated
     random.seed(42)
     use_keys = jax.random.split(key=split_key,num=settings.num_parallel_exps)
-    params = init_model(use_keys,jnp.ones((1,32,32,3)),model.init)
 
     # Set base optimizer
     if settings.optim == "sgdm":
         optim = optax.sgd(learning_rate=settings.lr)
         if settings.wd:
             optim = optax.chain(optax.add_decayed_weights(weight_decay=settings.wd,mask=tree_map_with_path(lambda s,_ : substrings_in_path(s,"kernel"),params)),optim)
-    
+
     elif settings.optim == "adam":
         optim = optax.adam(learning_rate=settings.lr)
         if settings.wd:
             optim = optax.chain(optax.add_decayed_weights(weight_decay=settings.wd,mask=tree_map_with_path(lambda s,_ : substrings_in_path(s,"kernel"),params)),optim)
-    
+
     elif settings.optim == "adamw":
         if settings.wd:
             optim = optax.adamw(learning_rate=settings.lr,weight_decay=settings.wd)
@@ -543,12 +545,22 @@ def train(save_path,settings):
     else:
         raise Exception("Optim not known")
 
-    opt_params = init_optimizer(params,optim.init)
+    # If snapshot exists load to resume training from a previous run
+    if os.path.isfile(os.path.join(save_path,"snapshot.pkl")):
+        stats_ckpts,params,opt_params,at_step = load_snapshot(save_path)
+    else:
+        params = init_model(use_keys,jnp.ones((1,32,32,3)),model.init)
+        opt_params = init_optimizer(params,optim.init)
 
-    if settings.bfloat16:
-        params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16),params)
-        opt_params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16) if jnp.isdtype(x,jnp.float32) else x,opt_params)
+        if settings.bfloat16:
+            params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16),params)
+            opt_params = tree_map(lambda x : jnp.astype(x,jnp.bfloat16) if jnp.isdtype(x,jnp.float32) else x,opt_params)
 
+        stats_ckpts = {"train_acc" : {}, "test_acc" : {}, "train_loss" : {}, "test_loss" : {}}
+        at_step = 0
+
+    ds_train_train,ds_train_eval,ds_test_eval = get_dataset(settings)
+    
     # If we want to perform normalization/rescaling, initialize the transform
     if settings.norm_every:
         # If we want to use the normalization scheme proposed by Niehaus et al. 2024, we have to c,axis=tuple(range(len(x.shape)-1))alculate the standard deviation before training
@@ -597,7 +609,7 @@ def train(save_path,settings):
                                                             if substrings_in_path(s,"kernel") else w,params,normed_params,layer_depth_dict))
 
     # Perform "settings.steps" on a dataset that is an infinite iterator
-    for i,(x_train,y_train)in zip(tqdm(range(settings.steps+1)),ds_stack_iterator(*ds_train_train)):
+    for i,(x_train,y_train)in zip(tqdm(range(at_step, at_step + settings.steps+1)),ds_stack_iterator(*ds_train_train)):
 
         # Save model params
         if settings.save_model_every and random.randint(a=1,b=settings.save_model_every) == 1:
@@ -627,6 +639,8 @@ def train(save_path,settings):
             with open(os.path.join(save_path,"stats.pkl"),"wb") as f:
                 pkl.dump(stats_ckpts,f)
     
+        if i%1000 == 0 and i != 0:
+            save_snapshot(save_path,stats_ckpts,params,opt_params,i)
 
         if settings.norm_every and i%settings.norm_every == 0:
             params = layerwise_stepscale_fn(params,norm_fn(params,i,settings.steps),i,settings.steps,get_layer_depth_dict,9)
