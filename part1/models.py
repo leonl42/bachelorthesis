@@ -102,42 +102,43 @@ class ResNet(nn.Module):
 class VGG11(nn.Module):
     num_classes: int
     activation_fn: any
+    features_div : int
 
     @nn.compact
     def __call__(self, x ,train: bool = True):
-        x = nn.Conv(features=64,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(64/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=128,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(128/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=256,kernel_size=(3,3),padding=1,use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = self.activation_fn(x)
-        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
-
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
-        x = nn.BatchNorm(use_running_average=not train)(x)
-        x = self.activation_fn(x)
-
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=512,kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.BatchNorm(use_running_average=not train)(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
         x = nn.BatchNorm(use_running_average=not train)(x)
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))

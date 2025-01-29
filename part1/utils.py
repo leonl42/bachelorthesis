@@ -310,17 +310,16 @@ def init_model(key,model_input,init_fn):
 def init_optimizer(weights,init_fn):
     return init_fn(weights)
 
-def get_states_device_put(model_init_fn,optim_init_fn,model_input,keys,default_cpu_device,named_sharding):
+def get_states(model_init_fn,optim_init_fn,model_input,keys,default_cpu_device):
     # Initialize params on default_cpu_device
     with jax.default_device(default_cpu_device):
         weights,batch_stats = init_model(keys,model_input,model_init_fn)
         optimizer_state = init_optimizer(weights,optim_init_fn)
 
-    # Distribute params on different devices
-    weights,batch_stats = jax.device_put(weights,named_sharding),jax.device_put(batch_stats,named_sharding)
-    optimizer_state = jax.device_put(optimizer_state,named_sharding)
-
     return weights,batch_stats,optimizer_state
+
+def device_put(named_sharding,*x):
+    return [jax.device_put(e,named_sharding) for e in x]
 
 def get_model(args):
     match args.model.model:
@@ -332,18 +331,11 @@ def get_model(args):
                     activation_fn = nn.tanh
                 case _:
                     exit("No matching activation_fn ({0}) found".format(args.model.activation_fn))
-            model = VGG11(num_classes=args.model.num_classes,activation_fn = activation_fn) 
-            l = layer_depth_vgg11
-            L = 8
-        case "vgg11_slim":
-            match args.model.activation_fn:
-                case "relu":
-                    activation_fn = nn.relu
-                case "tanh":
-                    activation_fn = nn.tanh
-                case _:
-                    exit("No matching activation_fn ({0}) found".format(args.model.activation_fn))
-            model = VGG11_slim(num_classes=args.model.num_classes,activation_fn = activation_fn) 
+            if args.model.features_div:
+                features_div = args.model.features_div
+            else:
+                features_div = 1
+            model = VGG11(num_classes=args.model.num_classes,activation_fn = activation_fn, features_div = features_div) 
             l = layer_depth_vgg11
             L = 8
         case "resnet50":

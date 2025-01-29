@@ -17,10 +17,27 @@ parser = argparse.ArgumentParser()
 parser.add_argument('save_path', type=str)
 parser.add_argument('--reset', action=argparse.BooleanOptionalAction)
 parser.add_argument('--bfloat16', action=argparse.BooleanOptionalAction)
+parser.add_argument("--overwrite-num-steps", type=int, default=None)
+parser.add_argument("--overwrite-save-state", type=int, default=None)
+parser.add_argument("--overwrite-save-grad", type=int, default=None)
 parse_args = parser.parse_args()
 
 with open(parse_args.save_path + "settings.json", "r") as f:
     args_dict = json.load(f)
+
+if parse_args.overwrite_num_steps:
+    args_dict["num_steps"] = parse_args.overwrite_num_steps
+
+if parse_args.overwrite_save_state:
+    args_dict["save_args"]["save_states_every"] = parse_args.overwrite_save_state
+
+if parse_args.overwrite_save_grad:
+    args_dict["save_args"]["save_grad_every"] = parse_args.overwrite_save_grad
+
+if parse_args.overwrite_num_steps or parse_args.overwrite_save_state or parse_args.overwrite_save_grad:
+    with open(parse_args.save_path + "settings.json", "w") as f:
+        json.dump(args_dict,f)
+
 args = dict_to_namespace(args_dict)
 args.save_path = parse_args.save_path
 
@@ -73,25 +90,40 @@ optimizer = get_optimizer(args,helper_weights=helper_weights)
 if args.at_step == 0:
     keys = jax.random.split(split_key,num=args.num_devices*args.num_experiments_per_device+1)
     sk,split_key = keys[:-1],keys[-1]
-    weights,batch_stats,optimizer_state = get_states_device_put(model.init,optimizer.init,jnp.ones((1,32,32,3)),sk,default_cpu_device,named_sharding)
+    weights,batch_stats,optimizer_state = get_states(model.init,optimizer.init,jnp.ones((1,32,32,3)),sk,default_cpu_device)
+
+    if args.save_args.save_states_every != -1:
+        with open(args.save_path + "states/" + str(0) + ".pkl", "wb") as f:
+            pkl.dump((weights,batch_stats,optimizer_state),f)
+
 else:
     with open(args.save_path + "states/" + str(args.at_step) + ".pkl", "rb") as f:
         weights,batch_stats,optimizer_state = pkl.load(f)
+
+weights,batch_stats,optimizer_state = device_put(named_sharding,weights,batch_stats,optimizer_state)
 
 if parse_args.bfloat16:
     weights = tree_map(lambda x : jnp.astype(x,jnp.bfloat16),weights)
     optimizer_state = tree_map(lambda x : jnp.astype(x,jnp.bfloat16) if jnp.isdtype(x,jnp.float32) else x,optimizer_state)
 
+if args.norm.norm_fn == "center_std_uncenter" or args.norm.norm_fn == "global_center_std_uncenter":
+    if args.at_step == 0:
+        std_weights = weights
+    else:
+        with open(args.save_path + "states/" + str(0) + ".pkl", "rb") as f:
+            std_weights,_,_ = pkl.load(f)
+            std_weights = device_put(named_sharding,std_weights)
+
 # If we want to use the normalization scheme proposed by Niehaus et al. 2024, we have to calculate the standard deviation before training
 if args.norm.norm_fn == "center_std_uncenter":
     # Get the standard deviations of the weights in the beginning
-    target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,axis=tuple(range(len(x.shape)-1)),keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"conv","kernel") else None, weights)
+    target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,axis=tuple(range(len(x.shape)-1)),keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"conv","kernel") else None, std_weights)
     # Function that applies settings.norm_fn to every leaf of the params dictionary
     # The result is a dictionary that contains the normed params
     norm_fn =  jax.jit(lambda tree : tree_map_with_path(lambda s,w,std : get_norm_fn(args.norm.norm_fn)(w,args.norm.norm_multiply,std) if substrings_in_path(s,"conv","kernel") else w,tree,target_std))
 elif args.norm.norm_fn == "global_center_std_uncenter":
     # Get the standard deviations of the weights in the beginning
-    target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"conv","kernel") else None, weights)
+    target_std = tree_map_with_path(lambda s,w : jax.vmap(lambda x : jnp.std(x,keepdims=True),in_axes=(0,))(w) if substrings_in_path(s,"conv","kernel") else None, std_weights)
     # Function that applies settings.norm_fn to every leaf of the params dictionary
     # The result is a dictionary that contains the normed params
     norm_fn =  jax.jit(lambda tree : tree_map_with_path(lambda s,w,std : get_norm_fn(args.norm.norm_fn)(w,args.norm.norm_multiply,std) if substrings_in_path(s,"conv","kernel") else w,tree,target_std))
@@ -122,7 +154,7 @@ layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dic
 
 print("Running: {0}".format(parse_args.save_path))
 
-for i,(img,lbl) in zip(tqdm(range(args.at_step,args.num_steps+1)),ds_train):
+for i,(img,lbl) in zip(tqdm(range(args.at_step+1,args.num_steps+1)),ds_train):
 
     # Generate new random keys for this step
     keys = jax.random.split(split_key,num=args.num_devices*args.num_experiments_per_device+1)
@@ -135,10 +167,6 @@ for i,(img,lbl) in zip(tqdm(range(args.at_step,args.num_steps+1)),ds_train):
 
     if i%args.optimizer.apply_wd_every == 0 and args.optimizer.apply_wd_every != -1:
         pass
-
-    # Perform a single train step
-    #weights,batch_stats,optimizer_state,aux = train_step(weights,batch_stats,optimizer_state,img,lbl,sk,model.apply,optimizer.update)
-
 
     grad,aux = get_grad_fn(weights,batch_stats,img,lbl,sk,model.apply)
     batch_stats = aux["batch_stats"]
