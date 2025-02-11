@@ -1,5 +1,5 @@
 import os
-os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.5"
+os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.25"
 import jax
 import jax.numpy as jnp
 import argparse
@@ -43,20 +43,20 @@ args.save_path = parse_args.save_path
 
 if parse_args.reset:
     args.at_step = 0
-    if os.path.exists(args.save_path + "states/"):
-        shutil.rmtree(args.save_path + "states/")
+    if os.path.exists(args.save_path + "states"):
+        shutil.rmtree(args.save_path + "states")
 
-    if os.path.exists(args.save_path + "grads/"):
-        shutil.rmtree(args.save_path + "grads/")
+    if os.path.exists(args.save_path + "grads"):
+        shutil.rmtree(args.save_path + "grads")
+        
+    if os.path.exists(args.save_path + "hessians"):
+        shutil.rmtree(args.save_path + "hessians")
 
-    if os.path.exists(args.save_path + "hessians/"):
-        shutil.rmtree(args.save_path + "hessians/")
+    if os.path.exists(args.save_path + "train_stats"):
+        shutil.rmtree(args.save_path + "train_stats")
 
-    if os.path.exists(args.save_path + "train_stats/"):
-        shutil.rmtree(args.save_path + "train_stats/")
-
-    if os.path.exists(args.save_path + "test_stats/"):
-        shutil.rmtree(args.save_path + "test_stats/")
+    if os.path.exists(args.save_path + "test_stats"):
+        shutil.rmtree(args.save_path + "test_stats")
 
 os.makedirs(args.save_path + "states/", exist_ok=True)
 os.makedirs(args.save_path + "grads/", exist_ok=True)
