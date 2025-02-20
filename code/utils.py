@@ -480,9 +480,13 @@ def get_optimizer(args,helper_weights):
     else:
         apply_wd_to = args.optimizer.apply_wd_to
 
-    conv_kernel_wd_mask = tree_map_with_path(lambda p,_ : substrings_in_path(apply_wd_to),helper_weights)
+    conv_kernel_wd_mask = tree_map_with_path(lambda s,_ : substrings_in_path(s,apply_wd_to),helper_weights)
 
-    lr = args.optimizer.lr
+    if not args.optimizer.lr_scheduler:
+        lr = args.optimizer.lr
+    elif args.optimizer.lr_scheduler.type == "random":
+        lr = lambda step : jax.random.uniform(key=jax.random.key(step),minval=args.optimizer.lr_scheduler.minval,maxval=args.optimizer.lr_scheduler.maxval)
+
     lambda_wd = args.optimizer.lambda_wd
 
     wd = optax.add_decayed_weights(lambda_wd,mask=conv_kernel_wd_mask)

@@ -1,0 +1,1 @@
+sbatch ./run/run.sbatch 

@@ -17,6 +17,7 @@ from multiprocessing.pool import ThreadPool
 import multiprocessing
 from tqdm import tqdm
 import pandas as pd
+import json
 from utils import *
 
 
@@ -30,6 +31,9 @@ class write:
         self.max_tasks=max_tasks
 
         os.makedirs(self.path,exist_ok=True)
+
+        with open(f"{self.path}/run.sh","w") as f:
+            pass
 
     def create_file(self):
         with open(f"{self.path}/run_{self.i}.sbatch","w") as f:
@@ -48,7 +52,12 @@ export TMPDIR=/share/users/student/l/llemke/tmp
 export PATH=/home/student/l/llemke/miniconda/envs/deskitopi/bin:/home/student/l/llemke/miniconda/condabin:/opt/xcat/bin:/opt/xcat/sbin:/opt/xcat/share/xcat/tools:/appl/spack/bin:/usr/lib64/ccache
 
 """)
+        with open(f"{self.path}/run.sh","a") as f:
+            f.write(f"sbatch {self.path}/run_{self.i}.sbatch \n")
+
+
         self.i += 1
+
 
     def write(self, s):
         if self.k == 0:
@@ -111,7 +120,7 @@ def get_subexpspaths(path, skip=None):
         if skip:
             if skip(subpath):
                 continue
-        subpaths.append((os.path.join(path,subpath),subpath))
+        subpaths.append(os.path.join(path,subpath))
 
     return subpaths
 
@@ -125,12 +134,13 @@ def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True):
     x = []
     means = []
     stds = []
-    for path,subpath in paths:
+    for path in paths:
         y = y_fn(path)
         mean = np.mean(y)
         std = np.std(y)
 
-        x.append(x_fn(subpath))
+        with open(os.path.join(path,"settings.json"),"r") as f:
+            x.append(x_fn(json.load(f)))
         means.append(mean)
         stds.append(std)
     
