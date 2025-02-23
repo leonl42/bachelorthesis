@@ -16,6 +16,8 @@ push_run:
 	ssh hpc 'cd /share/users/student/l/llemke/bachelorthesis && rm -r run && rm *.out || echo'
 	rsync -a ./run/ hpc:/share/users/student/l/llemke/bachelorthesis/run
 	ssh hpc 'cd /share/users/student/l/llemke/bachelorthesis && bash run/run.sh || echo'
+	ssh hpc 'squeue -u llemke'
 
 squeue:
 	ssh hpc 'squeue -u llemke'
+
