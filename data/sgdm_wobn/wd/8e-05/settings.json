@@ -4,10 +4,10 @@
     "random_key": 42,
     "num_steps": 200000,
     "save_args": {
-        "save_states_every": 200000,
+        "save_states_every": 25000,
         "save_train_stats_every": 1000,
         "save_test_stats_every": 1000,
-        "save_grad_every": -1,
+        "save_grad_every": 25000,
         "save_hessian_every": -1
     },
     "model": {
@@ -23,7 +23,7 @@
     },
     "optimizer": {
         "optimizer": "sgdm",
-        "lr": 0.0064,
+        "lr": 0.0128,
         "lambda_wd": 8e-05,
         "momentum": 0.9,
         "apply_wd_every": 1,

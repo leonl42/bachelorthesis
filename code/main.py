@@ -1,5 +1,10 @@
 import os
 os.environ["XLA_PYTHON_CLIENT_MEM_FRACTION"] = "0.5"
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+import absl.logging
+absl.logging.set_verbosity(absl.logging.ERROR)
+#import sys
+#sys.stderr = open(os.devnull, "w") 
 import jax
 import jax.numpy as jnp
 # Perform a Jax operation before importing Tensorflow to ensure Jax initializes Cuda before Tensorflow.
@@ -13,6 +18,7 @@ tf.config.set_visible_devices([], 'GPU')
 from utils import *
 import json
 from tqdm import tqdm
+import time
 import os
 import shutil
 
@@ -160,9 +166,16 @@ layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dic
                                     tree_map_with_path(lambda s,w,normed_w,l : change_fn(w,normed_w,n,N,l,L) 
                                                     if substrings_in_path(s,apply_norm_to) else w,params,normed_params,layer_depth_dict))
 
-print("Running: {0}".format(parse_args.save_path))
+print(f"|--------------- Running: {parse_args.save_path} ---------------|")
+start_time = time.time()
+start_step = args.at_step+1
+for i,(img,lbl) in zip(range(args.at_step+1,args.num_steps+1),ds_train):
 
-for i,(img,lbl) in zip(tqdm(range(args.at_step+1,args.num_steps+1)),ds_train):
+    if ((i-start_step) == 10000):
+        delta = time.time() - start_time
+        estimated_delta = int(delta*(args.num_steps-args.at_step)/10000)
+        h, m = divmod(estimated_delta // 60, 60)
+        print(f"Estimating: {parse_args.save_path} takes {h:02d}:{m:02d}")
 
     # Generate new random keys for this step
     keys = jax.random.split(split_key,num=args.num_devices*args.num_experiments_per_device+1)
@@ -172,6 +185,7 @@ for i,(img,lbl) in zip(tqdm(range(args.at_step+1,args.num_steps+1)),ds_train):
         if args.norm.stop_after is None or i<=args.norm.stop_after:
             if i%args.norm.norm_every == 0 and args.norm.norm_every != -1:
                 weights = layerwise_stepscale_fn(weights,norm_fn(weights),i,args.num_steps,layer_depth_dict,num_layers)
+    
 
     if i%args.optimizer.apply_wd_every == 0 and args.optimizer.apply_wd_every != -1:
         pass
@@ -207,3 +221,7 @@ for i,(img,lbl) in zip(tqdm(range(args.at_step+1,args.num_steps+1)),ds_train):
     if i%args.save_args.save_test_stats_every == 0 and args.save_args.save_test_stats_every != -1:
         with open(args.save_path + "test_stats/" + str(i) + ".pkl", "wb") as f:
             pkl.dump(eval(weights,batch_stats,model.apply,ds_test,78),f)
+
+delta = int(time.time() - start_time)
+h, m = divmod(delta // 60, 60)
+print(f"|--------------- Run: {parse_args.save_path} in {h:02d}:{m:02d} ---------------|")

@@ -44,6 +44,7 @@ class write:
 #SBATCH --time={self.h}:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1 
+#SBATCH --constraint="A100|H100.80gb"
 #SBATCH --output={self.name}_{self.i}.out
 
 source ~/miniconda/bin/activate deskitopi
@@ -74,16 +75,16 @@ export PATH=/home/student/l/llemke/miniconda/envs/deskitopi/bin:/home/student/l/
 
 
 def get_ckpt_paths(path, subfolder):
-    if os.path.exists(os.path.join(path,"settings.json")):
+    #if os.path.exists(os.path.join(path,"settings.json")):
 
-        path = os.path.join(path,subfolder)
-        files = [f for f in os.listdir(path)]
-        files = sorted(files, key = lambda f : int(f.split(".")[0]))
+    path = os.path.join(path,subfolder)
+    files = [f for f in os.listdir(path)]
+    files = sorted(files, key = lambda f : int(f.split(".")[0]))
 
-        return OrderedDict([(int(f.split(".")[0]),os.path.join(path,f)) for f in files])
-    else:
-        dicts = [get_ckpt_paths(os.path.join(path,run),subfolder) for run in os.listdir(os.path.join(path))]
-        return tree_map(lambda *e : [*e], *dicts)
+    return OrderedDict([(int(f.split(".")[0]),os.path.join(path,f)) for f in files])
+    #else:
+    #    dicts = [get_ckpt_paths(os.path.join(path,run),subfolder) for run in os.listdir(os.path.join(path))]
+    #    return tree_map(lambda *e : [*e], *dicts)
 
 
 def load(path):
@@ -95,24 +96,42 @@ def load(path):
     for p in path:
         with open(p, "rb") as f:
             ckpt.append(pkl.load(f))
-    
+
     return tree_map(lambda *e : np.concatenate([*e]), *ckpt)
 
 def get_stats(path, subfolder):
 
-    stats = {i : load(p) for i,p in get_ckpt_paths(path, subfolder).items()}
+    stats = {}
+    for i,p in get_ckpt_paths(path, subfolder).items():
+        if os.path.getsize(p) != 0:
+            stats[i] = load(p)
+        else:
+            print(f"{'\033[91m'} File: {p} had size {os.path.getsize(p)} {'\033[91m'}")
+    
     acc = {key : value["acc"] for key,value in stats.items()}
     loss = {key : value["loss"] for key,value in stats.items()}
 
     return {"acc" : acc, "loss" : loss}
 
-def plot_step_stat(stats, ax, label=None):
+def smooth(mean,std,smoothing):
+    new_mean = np.zeros_like(mean)
+    new_std = np.zeros_like(std)
+    for i in range(mean.size):
+        new_mean[i] = np.mean(mean[max(i-smoothing,0):min(i+smoothing+1,mean.size)])
+        new_std[i] = np.mean(std[max(i-smoothing,0):min(i+smoothing+1,mean.size)])
+    return new_mean,new_std
+
+
+def plot_step_stat(stats, ax, label=None, smoothing : int = 0, show_std = True,alpha=0.3):
 
     x = stats.keys()
     mean = np.asarray(list(tree_map(lambda y : np.mean(y),stats).values()))
     std = np.asarray(list(tree_map(lambda y : np.std(y),stats).values()))
+    if smoothing > 0:
+        mean,std = smooth(mean,std,smoothing)
     ax.plot(x, mean, label=label)
-    ax.fill_between(x, mean-std, mean+std, alpha=0.3)
+    if show_std:
+        ax.fill_between(x, mean-std, mean+std, alpha=alpha)
 
 def get_subexpspaths(path, skip=None):
     subpaths = []
@@ -217,18 +236,21 @@ def estimate_convergence(stats, path_length = 5, acc_tol = 0.005, var_tol = 0.5)
 
 
 def get_batchstats_stats(x, batch_stats):
+
     batch_stats = tree_map(lambda x : (np.asarray(jnp.mean(x)),np.asarray(jnp.std(x))),batch_stats)
+    try:
+        mean_of_mean = {key : {"x" : x, "y" : value["mean"][0]} for key,value in batch_stats.items()}
+        var_of_mean = {key : {"x" : x, "y" : value["mean"][1]} for key,value in batch_stats.items()}
+        mean_of_var = {key : {"x" : x, "y" : value["var"][0]} for key,value in batch_stats.items()}
+        var_of_var = {key : {"x" : x, "y" : value["var"][1]} for key,value in batch_stats.items()}
+
+        return mean_of_mean,var_of_mean,mean_of_var,var_of_var
+    except:
+        return {},{},{},{}
     
-    mean_of_mean = {key : {"x" : x, "y" : value["mean"][0]} for key,value in batch_stats.items()}
-    var_of_mean = {key : {"x" : x, "y" : value["mean"][1]} for key,value in batch_stats.items()}
-    mean_of_var = {key : {"x" : x, "y" : value["var"][0]} for key,value in batch_stats.items()}
-    var_of_var = {key : {"x" : x, "y" : value["var"][1]} for key,value in batch_stats.items()}
-
-    return mean_of_mean,var_of_mean,mean_of_var,var_of_var
-
 def get_weights_channel_norms(x, weights):
     weights = {key : value for key,value in weights.items() if "Conv" in key}
-    cnorms = tree_map(lambda w : np.asarray(jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0)),weights)
+    cnorms = tree_map(lambda w : jnp.linalg.vector_norm(w.reshape(-1,w.shape[-1]),axis=0,keepdims=False),weights)
     mean_and_var_of_cnorms = tree_map(lambda x : (np.mean(x),np.var(x)),cnorms)
 
     cnorm_mean = {key : {"x" : x, "y" : value["kernel"][0]} for key,value in mean_and_var_of_cnorms.items()}
@@ -276,7 +298,7 @@ def get_optim_momentum_norm(x, optim_state):
     return {"bn" : {"x" : x, "y" : momentum_norm_bn},"conv" : {"x" : x, "y" : momentum_norm_conv},"dense" : {"x" : x, "y" : momentum_norm_dense}}
 
 
-def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None):
+def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None,states="states", return_row_dict=False,plot=True):
     # Format of dicts in list:
     # rows
     #   cols
@@ -286,7 +308,7 @@ def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None):
     #            y
     row_dict = []
 
-    ckpt_paths_states = get_ckpt_paths(path,"states")
+    ckpt_paths_states = get_ckpt_paths(path,states)
     ckpt_paths_grads = get_ckpt_paths(path,"grads")
 
     def compute(i,ckpt_states,_,ckpt_grads):
@@ -303,6 +325,11 @@ def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None):
         weights,batch_stats,optim_state = load([ckpt_states])
         grad = load([ckpt_grads])
         
+        weights = tree_map(lambda w : w[0], weights)
+        batch_stats = tree_map(lambda w : w[0], batch_stats)
+        optim_state = tree_map(lambda w : w[0], optim_state)
+        grad = tree_map(lambda w : w[0], grad)
+
         batchstats_mean_of_mean,batchstats_var_of_mean,batchstats_mean_of_var,batchstats_var_of_var = get_batchstats_stats(i, batch_stats)
         cnorm_mean,cnorm_var = get_weights_channel_norms(i,weights)
         cmean_mean,cmean_var = get_weights_channel_means(i,weights)
@@ -327,31 +354,38 @@ def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None):
 
     row_dict = [e for e in row_dict if e is not None]
     row_dict = tree_map(lambda *x : x[0] if isinstance(x[0],str) else np.asarray(x) , *row_dict)
+    
+    if plot:
+        if axs_tuple is None:
+            ncols = len(list(row_dict[0].keys()))
+            nrows = len(list(row_dict.keys()))
+            fig,axs = plt.subplots(ncols = ncols, nrows = nrows)
+        else:
+            fig,axs,ncols,nrows = axs_tuple
 
-    if axs_tuple is None:
-        ncols = len(list(row_dict[0].keys()))
-        nrows = len(list(row_dict.keys()))
-        fig,axs = plt.subplots(ncols = ncols, nrows = nrows)
+        for row,col_dict in row_dict.items():
+            for col, (title, label_dict) in col_dict.items():
+                if ncols == 1 and nrows == 1:
+                    ax = plt
+                elif ncols == 1:
+                    ax = axs[row]
+                elif nrows == 1:
+                    ax = axs[col] 
+                else:
+                    ax = axs[row][col]
+                for label,x_y_dict in label_dict.items():
+                    ax.plot(x_y_dict["x"],x_y_dict["y"],label=label)
+                
+                ax.set_title(title)
+                #ax.legend()
     else:
-        fig,axs,ncols,nrows = axs_tuple
+        fig,axs = None,None
+    if return_row_dict:
+        return (fig,axs),row_dict
+    else:
+        return (fig,axs)
 
-    for row,col_dict in row_dict.items():
-        for col, (title, label_dict) in col_dict.items():
-            if ncols == 1 and nrows == 1:
-                ax = plt
-            elif ncols == 1:
-                ax = axs[row]
-            elif nrows == 1:
-                ax = axs[col] 
-            else:
-                ax = axs[row][col]
-            for label,x_y_dict in label_dict.items():
-                ax.plot(x_y_dict["x"],x_y_dict["y"],label=label)
-            
-            ax.set_title(title)
-            #ax.legend()
 
-    return (fig,axs)
 
 
 

@@ -2,12 +2,12 @@
     "num_devices": 1,
     "num_experiments_per_device": 3,
     "random_key": 42,
-    "num_steps": 100000,
+    "num_steps": 200000,
     "save_args": {
-        "save_states_every": 100000,
+        "save_states_every": 200000,
         "save_train_stats_every": 1000,
         "save_test_stats_every": 1000,
-        "save_grad_every": -1,
+        "save_grad_every": 200000,
         "save_hessian_every": -1
     },
     "model": {
@@ -23,7 +23,7 @@
     },
     "optimizer": {
         "optimizer": "sgdm",
-        "lr": 0.0064,
+        "lr": 0.0128,
         "lambda_wd": 0,
         "momentum": 0.9,
         "apply_wd_every": 1
@@ -36,6 +36,6 @@
         "reverse_norms": false,
         "apply_norm_to": "conv&kernel|out&kernel"
     },
-    "at_step": 100000,
+    "at_step": 200000,
     "save_path": "./data/sgdm_wobn/cnorm/1.4_1/"
 }

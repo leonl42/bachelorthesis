@@ -2,9 +2,9 @@
     "num_devices": 1,
     "num_experiments_per_device": 3,
     "random_key": 42,
-    "num_steps": 200000,
+    "num_steps": 400000,
     "save_args": {
-        "save_states_every": 50000,
+        "save_states_every": 400000,
         "save_train_stats_every": 1000,
         "save_test_stats_every": 1000,
         "save_grad_every": -1,
@@ -36,6 +36,6 @@
         "norm_every": -1,
         "reverse_norms": false
     },
-    "at_step": 200000,
+    "at_step": 400000,
     "save_path": "./data/adam_wbn/wd/5e-07/"
 }

@@ -117,7 +117,7 @@ class VGG11(nn.Module):
 
     @nn.compact
     def __call__(self, x ,train: bool = True):
-        x = nn.Conv(features=int(64/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(64/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
@@ -125,7 +125,7 @@ class VGG11(nn.Module):
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=int(128/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(128/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
@@ -133,29 +133,14 @@ class VGG11(nn.Module):
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
             x = BatchNormIdentity()(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
-        if self.use_bn:
-            x = nn.BatchNorm(use_running_average=not train)(x)
-        else:
-            x = BatchNormIdentity()(x)
-        x = self.activation_fn(x)
-        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
-
-        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
-        if self.use_bn:
-            x = nn.BatchNorm(use_running_average=not train)(x)
-        else:
-            x = BatchNormIdentity()(x)
-        x = self.activation_fn(x)
-
-        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(256/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
@@ -163,14 +148,29 @@ class VGG11(nn.Module):
         x = self.activation_fn(x)
         x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
 
-        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
             x = BatchNormIdentity()(x)
         x = self.activation_fn(x)
 
-        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=False)(x)
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
+        if self.use_bn:
+            x = nn.BatchNorm(use_running_average=not train)(x)
+        else:
+            x = BatchNormIdentity()(x)
+        x = self.activation_fn(x)
+        x = nn.max_pool(x,window_shape=(2,2),strides=(2,2))
+
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
+        if self.use_bn:
+            x = nn.BatchNorm(use_running_average=not train)(x)
+        else:
+            x = BatchNormIdentity()(x)
+        x = self.activation_fn(x)
+
+        x = nn.Conv(features=int(512/self.features_div),kernel_size=(3,3),padding=1,use_bias=not self.use_bn)(x)
         if self.use_bn:
             x = nn.BatchNorm(use_running_average=not train)(x)
         else:
@@ -207,14 +207,14 @@ class VGG11(nn.Module):
             'out': {'bias': 0, 'kernel': 0}} 
 
         else:
-            return {'Conv_0': {'kernel': 1},
-            'Conv_1': {'kernel': 2},
-            'Conv_2': {'kernel': 3},
-            'Conv_3': {'kernel': 4},
-            'Conv_4': {'kernel': 5},
-            'Conv_5': {'kernel': 6},
-            'Conv_6': {'kernel': 7},
-            'Conv_7': {'kernel': 8},
+            return {'Conv_0': {'kernel': 1, 'bias' : 1},
+            'Conv_1': {'kernel': 2, 'bias' : 2},
+            'Conv_2': {'kernel': 3, 'bias' : 3},
+            'Conv_3': {'kernel': 4, 'bias' : 4},
+            'Conv_4': {'kernel': 5, 'bias' : 5},
+            'Conv_5': {'kernel': 6, 'bias' : 6},
+            'Conv_6': {'kernel': 7, 'bias' : 7},
+            'Conv_7': {'kernel': 8, 'bias' : 8},
             'out': {'bias': 0, 'kernel': 0}} 
 
 class VGG11_slim(nn.Module):
