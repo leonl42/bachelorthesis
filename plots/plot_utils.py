@@ -14,6 +14,7 @@ from collections import OrderedDict
 import os
 import operator
 from multiprocessing.pool import ThreadPool
+import seaborn as sns
 import multiprocessing
 from tqdm import tqdm
 import pandas as pd
@@ -101,8 +102,16 @@ def load(path):
 
 def get_stats(path, subfolder):
 
+    if not os.path.exists(os.path.join(path,subfolder)):
+        return None
+
     stats = {}
-    for i,p in get_ckpt_paths(path, subfolder).items():
+    ckpt_paths = list(get_ckpt_paths(path, subfolder).items())
+
+    if len(ckpt_paths) == 0:
+        return None
+
+    for i,p in ckpt_paths:
         if os.path.getsize(p) != 0:
             stats[i] = load(p)
         else:
@@ -122,16 +131,39 @@ def smooth(mean,std,smoothing):
     return new_mean,new_std
 
 
-def plot_step_stat(stats, ax, label=None, smoothing : int = 0, show_std = True,alpha=0.3):
+def plot_step_stat(stats, ax, label=None, smoothing : int = 0, show_std = True,alpha=0.3,max_step=None,color=None):
 
-    x = stats.keys()
-    mean = np.asarray(list(tree_map(lambda y : np.mean(y),stats).values()))
-    std = np.asarray(list(tree_map(lambda y : np.std(y),stats).values()))
+    x = list(stats.keys())
+
+
+
+    mean = list(tree_map(lambda y : np.mean(y),stats).values())
+    std = list(tree_map(lambda y : np.std(y),stats).values())
+
+    if x[0] != 0:
+        x.insert(0,0)
+        mean.insert(0,0.1)
+        std.insert(0,0)
+
+    mean = np.asarray(mean)
+    std = np.asarray(std)
+    
+    if max_step:
+        new_x = [e for e in x if e<=max_step]
+        mean = mean[:len(new_x)]
+        std = std[:len(new_x)]
+        x = new_x
+
     if smoothing > 0:
         mean,std = smooth(mean,std,smoothing)
-    ax.plot(x, mean, label=label)
-    if show_std:
-        ax.fill_between(x, mean-std, mean+std, alpha=alpha)
+    if color:
+        ax.plot(x, mean, label=label,c=color)
+        if show_std:
+            ax.fill_between(x, mean-std, mean+std, alpha=alpha,color=color)
+    else:
+        ax.plot(x, mean, label=label)
+        if show_std:
+            ax.fill_between(x, mean-std, mean+std, alpha=alpha)
 
 def get_subexpspaths(path, skip=None):
     subpaths = []
@@ -145,9 +177,12 @@ def get_subexpspaths(path, skip=None):
 
 
 def max_acc(stats):
+    if stats is None:
+        return None
+    
     return np.max(np.stack(list(stats["acc"].values())),axis=0)
 
-def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True):
+def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True,alpha=0.3,color=None):
     if len(paths) == 0:
         return None,None,None
     x = []
@@ -155,6 +190,8 @@ def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True):
     stds = []
     for path in paths:
         y = y_fn(path)
+        if y is None:
+            continue
         mean = np.mean(y)
         std = np.std(y)
 
@@ -164,7 +201,7 @@ def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True):
         stds.append(std)
     
     if len(x) == 0:
-        return
+        return None, None, None
 
     x,means,stds = np.asarray(x),np.asarray(means),np.asarray(stds)
     argsort_indices = np.argsort(x).astype(np.int32)
@@ -177,8 +214,13 @@ def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True):
         means_normed = means
         stds_normed = stds
 
-    ax.plot(x,means_normed, label=label)
-    ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=0.3)
+    if color:
+        ax.plot(x,means_normed, label=label,c=color)
+        ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha,color=color)
+    else:
+        ax.plot(x,means_normed, label=label)
+        ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha)
+
 
     return (x,means,means_normed)
 
@@ -387,5 +429,392 @@ def plot_data(path, map_fn,start=0,stop=-1, hit = -1, axs_tuple = None,states="s
 
 
 
+def mg_spacing2(data_path,exps,labels,colors,mg_spacing,ncols,nrows,smoothing):
+    fig,axs = plt.subplots(ncols=ncols,nrows=nrows,sharey="all")
+    axs = axs.flatten()
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_grads = get_ckpt_paths(path,"grads")
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(grads):
+            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),grads)
+            return norms
+
+        x = [e[0] for e in list(ckpt_paths_grads.items())]
+        with ThreadPool(processes=12) as pool:
+            row_dict = pool.map(lambda e : get_grad_norm_fn(load([e[1]])),list(ckpt_paths_grads.items()))
+        
+        row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
+        row_dict = {key : val for key,val in row_dict.items() if not "batch" in key.lower()}
+        row_dict = np.asarray([val["kernel"] for _,val in row_dict.items()])
+
+        
+        mean = np.mean(row_dict,axis=-1)
+        std = np.std(row_dict,axis=-1)
+
+        
+
+        for l in range(mean.shape[0]):
+
+            plt_mean,plt_std = smooth(mean[l,:],std[l,:],smoothing)
+
+            axs[i].plot(x,plt_mean,label=l)
+            axs[i].fill_between(x, plt_mean - plt_std, plt_mean + plt_std,alpha=0.15)
+
+    fig.set_size_inches(6*ncols,6*nrows)
+    fig.tight_layout()
+
+    return fig,axs
 
 
+def lars(data_path,exps,labels,colors,lrs,mg_spacing,folder):
+    
+    fig,axs = plt.subplots(ncols=len(labels),nrows=1,sharey="all")
+    for i,(label,exp,color,lr) in enumerate(zip(labels,exps,colors.values(),lrs)):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_grads = get_ckpt_paths(path,folder)
+        ckpt_paths_states = get_ckpt_paths(path,"states")
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(v):
+            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),v)
+            return norms
+        
+        x = [e for e in list(ckpt_paths_grads.keys())]
+        with ThreadPool(processes=12) as pool:
+            grads = pool.map(lambda e : get_grad_norm_fn(load(e)),ckpt_paths_grads.values())
+            states = pool.map(lambda e : get_grad_norm_fn(load(e)[0]),ckpt_paths_states.values())
+
+        grads = tree_map(lambda *x : jnp.asarray(x) , *[e for e in grads if e is not None])
+        states = tree_map(lambda *x : jnp.asarray(x) , *[e for e in states if e is not None])
+
+        grads = {key : val for key,val in grads.items() if not "batch" in key.lower()}
+        states = {key : val for key,val in states.items() if not "batch" in key.lower()}
+
+        grads = jnp.asarray([val["kernel"] for _,val in grads.items()]).T
+        states = jnp.asarray([val["kernel"] for _,val in states.items()]).T
+
+        res = states/grads
+
+        mean = np.mean(res,axis=0)
+        std = np.std(res,axis=0)
+        for l in range(mean.shape[-1]):
+            axs[i].plot(x,mean[:,l])
+    
+    return fig,axs
+
+def grad_norm_per_layer(data_path,exps,labels,colors,mg_spacing,folder):
+    
+    fig,axs = plt.subplots(ncols=len(labels),nrows=1,sharey="all")
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_grads = get_ckpt_paths(path,folder)
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(grads):
+            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),grads)
+            return norms
+        
+        x = [e for e in list(ckpt_paths_grads.keys())]
+        with ThreadPool(processes=12) as pool:
+            grads = pool.map(lambda e : get_grad_norm_fn(load(e)),ckpt_paths_grads.values())
+
+        grads = tree_map(lambda *x : jnp.asarray(x) , *[e for e in grads if e is not None])
+        grads = {key : val for key,val in grads.items() if not "batch" in key.lower()}
+        grads = jnp.asarray([val["kernel"] for _,val in grads.items()]).T
+
+
+        mean = np.mean(grads,axis=0)
+        std = np.std(grads,axis=0)
+        for l in range(mean.shape[-1]):
+            axs[i].plot(x,mean[:,l])
+    
+    return fig,axs
+
+def mg_spacing_and_bar_plot(data_path,exps,labels,colors,mg_spacing,folder):
+    
+    fig,axs = plt.subplots(ncols=3,nrows=1)
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_grads = get_ckpt_paths(path,folder)
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(grads):
+            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),grads)
+            return norms
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        @partial(jax.vmap,in_axes=(0))
+        def polyfit_fn(norms):
+
+            return jnp.polyfit(jnp.arange(norms.size,dtype=jnp.float32),norms,1)
+
+        x = [e[0] for e in list(ckpt_paths_grads.items())]
+
+        if folder == "states":
+            with ThreadPool(processes=12) as pool:
+                row_dict = pool.map(lambda e : get_grad_norm_fn(load([e[1]])[0]),list(ckpt_paths_grads.items()))
+        else:
+             with ThreadPool(processes=12) as pool:
+                row_dict = pool.map(lambda e : get_grad_norm_fn(load([e[1]])),list(ckpt_paths_grads.items()))
+        
+        row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
+        row_dict = {key : val for key,val in row_dict.items() if not "batch" in key.lower()}
+        row_dict = jnp.asarray([val["kernel"] for _,val in row_dict.items()]).T
+
+        polyfit_result = tree_map(polyfit_fn,row_dict)
+
+        mean_m = np.mean(polyfit_result[:,:,0],axis=0)
+        std_m = np.std(polyfit_result[:,:,0],axis=0)
+        mean_m,std_m = smooth(mean_m,std_m,4)
+        axs[0].plot(x,mean_m,label=label,c=color)
+        axs[0].fill_between(x, mean_m-std_m, mean_m+std_m, alpha=0.15,color=color)
+
+        mean_b = np.mean(polyfit_result[:,:,1],axis=0)
+        std_b = np.std(polyfit_result[:,:,1],axis=0)
+        mean_b,std_b = smooth(mean_b,std_b,4)
+        axs[1].plot(x,mean_b,label=label,c=color)
+        axs[1].fill_between(x, mean_b-std_b, mean_b+std_b, alpha=0.15,color=color)
+
+
+    lines, labels = axs[1].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=len(labels), bbox_to_anchor=(0.33,0.1), bbox_transform=fig.transFigure)
+
+    axs[0].set_title("m",font={'weight' : 'bold'})
+    axs[1].set_title("b",font={'weight' : 'bold'})
+    axs[2].set_title("max. validation accuracy",font={'weight' : 'bold'})
+
+    max_accs = []
+    for exp in exps:
+
+        max_accs.append(max_acc(get_stats(f"{data_path}/{exp}","test_stats")))
+
+    max_accs = np.asarray(max_accs)
+    mean = np.mean(max_accs,axis=-1)
+    std = np.std(max_accs,axis=-1)
+
+    argsort_mean = np.argsort(mean)
+    std = std[argsort_mean]
+    labels = np.asarray(labels)[argsort_mean]
+    mean = mean[argsort_mean]
+
+    #plt.ylabel("validation accuracy",font={'weight' : 'bold'})
+    sns.barplot({"x" : labels,"y" : mean},x = "x", y = "y",palette=colors,edgecolor="black",ax=axs[2])
+    axs[2].set_xticklabels(axs[2].get_xticklabels(),rotation=70)
+    axs[2].set_ylim(0.7,0.9)
+
+    axs[2].set_xlabel("")
+    axs[2].set_ylabel("")
+    
+    fig.set_size_inches(18,6)
+    fig.tight_layout()
+
+    return fig,axs
+
+
+def mg_spacing(data_path,exps,labels,colors,mg_spacing):
+    
+    fig,axs = plt.subplots(ncols=3,nrows=1)
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_updates = get_ckpt_paths(path,"updates")
+        ckpt_paths_states = get_ckpt_paths(path,"states")
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(grads):
+            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),grads)
+            return norms
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        @partial(jax.vmap,in_axes=(0))
+        def polyfit_fn(norms):
+
+            return jnp.polyfit(jnp.arange(norms.size,dtype=jnp.float32),norms,1)
+
+        x = [e[0] for e in list(ckpt_paths_updates.items())]
+
+        with ThreadPool(processes=12) as pool:
+            states = pool.map(lambda e : get_grad_norm_fn(load(e)[0]),ckpt_paths_states.values())
+            updates = pool.map(lambda e : get_grad_norm_fn(load(e)),ckpt_paths_updates.values())
+        
+        def to_jnp(row_dict):
+            row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
+            row_dict = {key : val for key,val in row_dict.items() if not "batch" in key.lower()}
+            row_dict = jnp.asarray([val["kernel"] for _,val in row_dict.items()]).T
+        
+            return row_dict
+        
+        states,updates = to_jnp(states),to_jnp(updates)
+
+        polyfit_states = tree_map(polyfit_fn,states)
+        polyfit_updates = tree_map(polyfit_fn,updates)
+
+        def plot(i,polyfit):
+            mean = np.mean(polyfit,axis=0)
+            std = np.std(polyfit,axis=0)
+            mean,std = smooth(mean,std,4)
+            axs[i].plot(x,mean,label=label,c=color)
+            axs[i].fill_between(x, mean-std, mean+std, alpha=0.15,color=color)
+
+        plot(0,polyfit_states[:,:,1])
+        plot(1,polyfit_updates[:,:,0])
+        plot(2,polyfit_updates[:,:,1])
+
+    lines, labels = axs[1].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5,-0.075), bbox_transform=fig.transFigure)
+
+    axs[0].set_title("weight b",font={'weight' : 'bold'})
+    axs[1].set_title("grad m",font={'weight' : 'bold'})
+    axs[2].set_title("grad b",font={'weight' : 'bold'})
+    
+    fig.set_size_inches(18,6)
+    fig.tight_layout()
+
+    return fig,axs
+
+colors = dict(zip(["noreg","norm","cnorm","cnormu","gcstdu","wd"], sns.color_palette("tab10", 6)))
+
+
+def plot_wbn_setting_hyperparam_max_acc(data_path,image_path,wrs_p1,wrs):
+    fig,axs = plt.subplots(ncols=3,nrows=1,sharey="row")
+
+    x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/noreg"),
+                            lambda js : np.sqrt(0.001/(js["optimizer"]["lr"])), 
+                            lambda p : max_acc(get_stats(p,"test_stats")),
+                            axs[0], 
+                            norm=False,
+                            label="Noreg",
+                            color=colors["noreg"],
+                            alpha=0.15)
+    print("Max test accuracy of Standard is {0}% with lr {1}".format(round(100*y.max(),2),round(0.001/(x[y.argmax()]**2),6)))
+
+    for i,exp in enumerate(wrs_p1):
+        x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/{exp.lower()}"),
+                                lambda js: np.sqrt(0.001/(js["optimizer"]["lr"])), 
+                                lambda p : max_acc(get_stats(p,"test_stats")), 
+                                axs[0], 
+                                norm=False, 
+                                label=rf"{exp.split("_")[0]}($p=1$)",
+                                color=colors[exp.split("_")[0].lower()],
+                                alpha=0.15)
+        print("Max test accuracy of {0} is {1}% with p {2}".format(exp,round(100*y.max(),2),round(0.001/(x[y.argmax()]**2),6)))
+
+
+    for i,exp in enumerate(wrs):
+
+        x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/{exp.lower()}"),
+                                lambda js: js["norm"]["norm_multiply"],
+                                lambda p : max_acc(get_stats(p,"test_stats")), 
+                                axs[1], 
+                                norm=False, 
+                                label=rf"${exp}($lr=0.001$)$",
+                                color=colors[exp.lower()],
+                                alpha=0.15)
+        print("Max test accuracy of {0} is {1}% with p {2}".format(exp,round(100*y.max(),2),x[y.argmax()]))
+
+    x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/wd"),
+                            lambda js : np.log(js["optimizer"]["lambda_wd"]),
+                            lambda p : max_acc(get_stats(p,"test_stats")),
+                            axs[2], 
+                            norm=False,
+                            label=r"WD($lr=0.001$)",
+                            color=colors["wd"],
+                            alpha=0.15)
+    print("Max test accuracy of wd is {0}% with lambda {1}".format(round(100*y.max(),2),np.exp(x[y.argmax()])))
+
+    axs[0].set_ylim(0.7,0.9)
+
+    axs[0].legend()
+    axs[1].legend()
+    axs[2].legend()
+
+    fig.text(-0.03, 0.5, "Max. Validation accuracy", va='center', rotation='vertical',font={'size'   : 14,'weight' : 'bold'})
+
+    axs[0].set_xlabel(r"$\mathbf{\sqrt{\frac{0.001}{lr}}}$",font={'size'   : 12,'weight' : 'bold'},labelpad=20)
+    axs[1].set_xlabel(r"$\mathbf{p}$",font={'size'   : 12,'weight' : 'bold'},labelpad=20)
+    axs[2].set_xlabel(r"$\mathbf{\text{log} \left( \lambda_{wd} \right)}$",font={'size'   : 12,'weight' : 'bold'},labelpad=20)
+
+    fig.set_size_inches(18,6)
+    fig.tight_layout()
+
+    fig.savefig(f"{image_path}/setting_hyperparameter_max_accuracy.png", bbox_inches='tight')
+
+def plot_wobn_setting_hyperparam_max_acc(data_path,image_path,wrs,lr):
+    fig,axs = plt.subplots(ncols=2,nrows=1,sharey="row")
+
+
+    for i,exp in enumerate(wrs):
+
+        x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/{exp.lower()}"),
+                                lambda js: js["norm"]["norm_multiply"],
+                                lambda p : max_acc(get_stats(p,"test_stats")), 
+                                axs[0], 
+                                norm=False, 
+                                label=rf"${exp}($lr={lr}$)$",
+                                color=colors[exp.lower()],
+                                alpha=0.15)
+        print("Max test accuracy of {0} is {1}% with p {2}".format(exp,round(100*y.max(),2),x[y.argmax()]))
+
+    x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/wd"),
+                            lambda js : np.log(js["optimizer"]["lambda_wd"]),
+                            lambda p : max_acc(get_stats(p,"test_stats")),
+                            axs[1], 
+                            norm=False,
+                            label=rf"WD($lr={lr}$)",
+                            color=colors["wd"],
+                            alpha=0.15)
+    print("Max test accuracy of wd is {0}% with lambda {1}".format(round(100*y.max(),2),np.exp(x[y.argmax()])))
+
+    axs[0].set_ylim(0.7,0.9)
+
+    axs[0].legend()
+    axs[1].legend()
+
+    fig.text(-0.03, 0.5, "Max. Validation accuracy", va='center', rotation='vertical',font={'size'   : 14,'weight' : 'bold'})
+
+    axs[0].set_xlabel(r"$\mathbf{p}$",font={'size'   : 10,'weight' : 'bold'},labelpad=20)
+    axs[1].set_xlabel(r"$\mathbf{\text{log} \left( \lambda_{wd} \right)}$",font={'size'   : 10,'weight' : 'bold'},labelpad=20)
+
+    fig.set_size_inches(12,6)
+    fig.tight_layout()
+
+    fig.savefig(f"{image_path}/setting_hyperparameter_max_accuracy.png", bbox_inches='tight')
+
+def plot_wbn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,settings,split,max_step):
+    fig,axs = plt.subplots(ncols=2,nrows=1,sharey="row")
+
+    for exp,label,setting in zip(exps[:split],labels[:split],settings[:split]):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[0],label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+
+    for exp,label,setting in zip(exps[split:],labels[split:],settings[split:]):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[1],label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+
+    axs[0].set_ylim(0.7,0.9)
+    axs[0].legend()
+    axs[1].legend()
+    fig.text(-0.03, 0.5, "Validation accuracy", va='center', rotation='vertical',font={'size'   : 12,'weight' : 'bold'})
+    fig.set_size_inches(12,6)
+    fig.tight_layout()
+    fig.savefig(f"{image_path}/best_hyperparameter_validation_accuracy.png", bbox_inches='tight')
+
+
+def plot_wobn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,settings,max_step):
+
+    for exp,label,setting in zip(exps,labels,settings):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],plt,label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+
+    plt.gca().set_ylim(0.7,0.9)
+    plt.legend()
+
+    plt.gcf().text(-0.03, 0.5, "Validation accuracy", va='center', rotation='vertical',font={'size'   : 12,'weight' : 'bold'})
+    plt.gcf().set_size_inches(6,6)
+    plt.gcf().tight_layout()
+    plt.gcf().savefig(f"{image_path}/best_hyperparameter_validation_accuracy.png", bbox_inches='tight')

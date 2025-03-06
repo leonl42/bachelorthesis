@@ -1,0 +1,39 @@
+{
+    "num_devices": 1,
+    "num_experiments_per_device": 3,
+    "random_key": 42,
+    "num_steps": 100000,
+    "save_args": {
+        "save_states_every": 100000,
+        "save_train_stats_every": 1000,
+        "save_test_stats_every": 1000,
+        "save_grad_every": -1,
+        "save_hessian_every": -1
+    },
+    "model": {
+        "model": "vgg11",
+        "num_classes": 10,
+        "activation_fn": "relu"
+    },
+    "dataset": {
+        "dataset": "cifar10",
+        "batch_size": 128,
+        "dataset_path": "./data/datasets/"
+    },
+    "optimizer": {
+        "optimizer": "sgdm",
+        "lr": 0.09999999999999998,
+        "lambda_wd": 0,
+        "momentum": 0.9,
+        "apply_wd_every": 1
+    },
+    "norm": {
+        "change_scale": "identity",
+        "norm_fn": "global_center_std_uncenter",
+        "norm_multiply": 1,
+        "norm_every": 1,
+        "reverse_norms": false
+    },
+    "at_step": 100000,
+    "save_path": "./data/sgdm_wbn/gcstdu_p1/0.099/"
+}

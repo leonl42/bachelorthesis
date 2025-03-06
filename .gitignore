@@ -3,5 +3,6 @@ backup/
 **/datasets/
 **/states
 **/hessians
+**/updates
 **/grads
 snapshot.pkl

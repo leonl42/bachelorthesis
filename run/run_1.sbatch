@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name="run_1"
-#SBATCH --cpus-per-task=16            
+#SBATCH --cpus-per-task=8            
 #SBATCH --mem=32G                     
-#SBATCH --time=24:00:00
+#SBATCH --time=15:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1 
 #SBATCH --constraint="A100|H100.80gb"
@@ -13,27 +13,12 @@ source ~/miniconda/bin/activate deskitopi
 export TMPDIR=/share/users/student/l/llemke/tmp
 export PATH=/home/student/l/llemke/miniconda/envs/deskitopi/bin:/home/student/l/llemke/miniconda/condabin:/opt/xcat/bin:/opt/xcat/sbin:/opt/xcat/share/xcat/tools:/appl/spack/bin:/usr/lib64/ccache
 
-python code/main.py ./data/adam_wbn/cnormu/3.6_1/ --overwrite-num-steps 800000 --overwrite-save-state 800000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/1.8_1/ --overwrite-num-steps 600000 --overwrite-save-state 600000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/3.4_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/5.2_1/ --overwrite-num-steps 1100000 --overwrite-save-state 1100000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/3.0_1/ --overwrite-num-steps 1100000 --overwrite-save-state 1100000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/1.0_1/ --overwrite-num-steps 900000 --overwrite-save-state 900000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/4.4_1/ --overwrite-num-steps 1100000 --overwrite-save-state 1100000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/2.6_1/ --overwrite-num-steps 600000 --overwrite-save-state 600000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/4.8_1/ --overwrite-num-steps 1100000 --overwrite-save-state 1100000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/2.8_1/ --overwrite-num-steps 900000 --overwrite-save-state 900000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/4.0_1/ --overwrite-num-steps 1100000 --overwrite-save-state 1100000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu/3.2_1/ --overwrite-num-steps 1000000 --overwrite-save-state 1000000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/2.0_1/ --overwrite-num-steps 900000 --overwrite-save-state 900000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/3.6_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/2.2_1/ --overwrite-num-steps 1000000 --overwrite-save-state 1000000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/1.8_1/ --overwrite-num-steps 1000000 --overwrite-save-state 1000000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/3.4_1/ --overwrite-num-steps 1400000 --overwrite-save-state 1400000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/5.2_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/3.0_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/2.4_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/1.0_1/ --overwrite-num-steps 700000 --overwrite-save-state 700000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/4.4_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/2.6_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
-python code/main.py ./data/adam_wbn/cnormu_div4/4.8_1/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/norm_p1/0.099/ --overwrite-num-steps 250000 --overwrite-save-state 250000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/gcstdu_p1/0.099/ --overwrite-num-steps 250000 --overwrite-save-state 250000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/norm_p1/0.044/ --overwrite-num-steps 175000 --overwrite-save-state 175000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/gcstdu_p1/0.044/ --overwrite-num-steps 175000 --overwrite-save-state 175000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/norm_p1/0.025/ --overwrite-num-steps 175000 --overwrite-save-state 175000 --overwrite-save-grad -1 
+python code/main.py ./data/sgdm_wbn/gcstdu_p1/0.025/ --overwrite-num-steps 175000 --overwrite-save-state 175000 --overwrite-save-grad -1 
+python code/main.py ./data/adam_wbn/cnormu_p1/0.00021/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
+python code/main.py ./data/adam_wbn/cnormu_p1/0.00017/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 
+python code/main.py ./data/adam_wbn/cnormu_p1/0.00025/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1 

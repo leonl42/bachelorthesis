@@ -2,9 +2,9 @@
     "num_devices": 1,
     "num_experiments_per_device": 3,
     "random_key": 42,
-    "num_steps": 300000,
+    "num_steps": 800000,
     "save_args": {
-        "save_states_every": 300000,
+        "save_states_every": 800000,
         "save_train_stats_every": 1000,
         "save_test_stats_every": 1000,
         "save_grad_every": -1,
@@ -36,6 +36,6 @@
         "reverse_norms": false,
         "apply_norm_to": "conv&kernel|out&kernel"
     },
-    "at_step": 300000,
+    "at_step": 800000,
     "save_path": "./data/adam_wobn/cnorm/1.4_1/"
 }

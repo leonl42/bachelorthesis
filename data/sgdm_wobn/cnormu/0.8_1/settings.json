@@ -2,12 +2,12 @@
     "num_devices": 1,
     "num_experiments_per_device": 3,
     "random_key": 42,
-    "num_steps": 800000,
+    "num_steps": 1200000,
     "save_args": {
-        "save_states_every": 25000,
+        "save_states_every": 1200000,
         "save_train_stats_every": 1000,
         "save_test_stats_every": 1000,
-        "save_grad_every": 25000,
+        "save_grad_every": -1,
         "save_hessian_every": -1
     },
     "model": {
@@ -36,6 +36,6 @@
         "reverse_norms": false,
         "apply_norm_to": "conv&kernel|out&kernel"
     },
-    "at_step": 800000,
+    "at_step": 1200000,
     "save_path": "./data/sgdm_wobn/cnormu/0.8_1/"
 }
