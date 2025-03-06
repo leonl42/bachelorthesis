@@ -120,7 +120,7 @@ def update_states_fn(weights, grad, opt_params, update_fn):
     updates,new_opt_params = update_fn(grad,opt_params,weights)
     new_weights = optax.apply_updates(weights,updates)
 
-    return new_weights,new_opt_params
+    return new_weights,new_opt_params,updates
 
 @partial(jax.jit,static_argnums=(6,7))
 @partial(jax.vmap,in_axes=(0,0,0,0,0,0,None,None))

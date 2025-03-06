@@ -2,15 +2,15 @@ from plots.plot_utils import *
 import json
 
 
-writer = write(name="run",path=f"./run",h=24,max_tasks=24)
+writer = write(name="run",path=f"./run",h=12,max_tasks=3)
 
-for setting in ["adam_wbn", "sgdm_wobn"]:
+for setting in ["adam_wbn"]:#,"sgdm_wobn","adam_wobn"]:
     for exp in os.listdir(f"./data/{setting}"):
     
         if os.path.exists(os.path.join(f"./data/{setting}",exp,"settings.json")):
             continue
 
-        if exp.endswith("_div8"):
+        if exp.endswith("_div8") or exp.endswith("_div4") or not exp.endswith("_p1"):
             continue
         
         hyperparams = list(os.listdir(os.path.join(f"./data/{setting}",exp)))
@@ -42,6 +42,6 @@ for setting in ["adam_wbn", "sgdm_wobn"]:
                     js = json.load(f)
                 curr_steps = js["num_steps"]
                 save_states = js["save_args"]["save_states_every"]
-                writer.write(f"python code/main.py {os.path.join("./data",setting,exp,hyperparam)}/ --overwrite-num-steps {curr_steps + 200000} --overwrite-save-state {curr_steps + 200000} --overwrite-save-grad {-1} \n")
+                writer.write(f"python code/main.py {os.path.join("./data",setting,exp,hyperparam)}/ --overwrite-num-steps {1200000} --overwrite-save-state {1200000} --overwrite-save-grad {-1} \n")
             else:
                 print(f"{'\033[92m'} Checked {os.path.join("./data",setting,exp,hyperparam)} with m={m*1e8} {'\033[92m'}")

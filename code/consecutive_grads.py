@@ -36,10 +36,14 @@ parse_args = parser.parse_args()
 if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"grads")):
     shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"grads"))
 
+if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"updates")):
+    shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"updates"))
+
 if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"states")):
     shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"states"))
 
 os.makedirs(os.path.join(parse_args.save_path,parse_args.folder_name,"grads"),exist_ok=True)
+os.makedirs(os.path.join(parse_args.save_path,parse_args.folder_name,"updates"),exist_ok=True)
 os.makedirs(os.path.join(parse_args.save_path,parse_args.folder_name,"states"),exist_ok=True)
 
 with open(parse_args.save_path + "settings.json", "r") as f:
@@ -138,7 +142,7 @@ for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_fr
     
     grad,aux = get_grad_fn(weights,batch_stats,img,lbl,sk,model.apply)
     batch_stats = aux["batch_stats"]
-    weights,optimizer_state = update_states_fn(weights, grad, optimizer_state, optimizer.update)
+    weights,optimizer_state,updates = update_states_fn(weights, grad, optimizer_state, optimizer.update)
 
     if args.norm.reverse_norms:
         weights = reverse_norms(weights)
@@ -147,6 +151,9 @@ for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_fr
     if i%parse_args.grad_spacing == 0:
         with open(os.path.join(args.save_path,parse_args.folder_name,"grads",str(i) + ".pkl"), "wb") as f:
             pkl.dump(grad,f)
+
+        with open(os.path.join(args.save_path,parse_args.folder_name,"updates",str(i) + ".pkl"), "wb") as f:
+            pkl.dump(updates,f)
         
         with open(os.path.join(args.save_path,parse_args.folder_name,"states",str(i) + ".pkl"), "wb") as f:
             pkl.dump((weights,batch_stats,optimizer_state),f)

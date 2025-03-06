@@ -192,7 +192,7 @@ for i,(img,lbl) in zip(range(args.at_step+1,args.num_steps+1),ds_train):
 
     grad,aux = get_grad_fn(weights,batch_stats,img,lbl,sk,model.apply)
     batch_stats = aux["batch_stats"]
-    weights,optimizer_state = update_states_fn(weights, grad, optimizer_state, optimizer.update)
+    weights,optimizer_state,_ = update_states_fn(weights, grad, optimizer_state, optimizer.update)
 
     if args.optimizer.apply_wd_every != -1:
         pass
