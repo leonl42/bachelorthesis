@@ -2,9 +2,3 @@ sbatch ./run/run_1.sbatch
 sbatch ./run/run_2.sbatch 
 sbatch ./run/run_3.sbatch 
 sbatch ./run/run_4.sbatch 
-sbatch ./run/run_5.sbatch 
-sbatch ./run/run_6.sbatch 
-sbatch ./run/run_7.sbatch 
-sbatch ./run/run_8.sbatch 
-sbatch ./run/run_9.sbatch 
-sbatch ./run/run_10.sbatch 

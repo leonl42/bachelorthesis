@@ -29,7 +29,7 @@ parser.add_argument('save_path', type=str)
 parser.add_argument('folder_name', type=str)
 parser.add_argument('load_from_step', type=int)
 parser.add_argument('num_grads', type=int, default=10)
-parser.add_argument('grad_spacing', type=int, default=1)
+parser.add_argument('mg_spacing', type=int, default=1)
 parser.add_argument('--bfloat16', action=argparse.BooleanOptionalAction)
 parse_args = parser.parse_args()
 
@@ -73,7 +73,7 @@ with jax.default_device(default_cpu_device):
 optimizer = get_optimizer(args,helper_weights=helper_weights)
 
 
-with open(args.save_path + "states/" + str(parse_args.load_from_step) + ".pkl", "rb") as f:
+with open(parse_args.save_path + "states/" + str(parse_args.load_from_step) + ".pkl", "rb") as f:
         weights,batch_stats,optimizer_state = pkl.load(f)
 
 weights,batch_stats,optimizer_state = device_put(named_sharding,weights,batch_stats,optimizer_state)
@@ -129,7 +129,7 @@ layerwise_stepscale_fn = jax.jit(lambda params,normed_params,n,N,layer_depth_dic
 
 
 
-for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_from_step+1+parse_args.num_grads*parse_args.grad_spacing)),ds_train):
+for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_from_step+1+parse_args.num_grads*parse_args.mg_spacing)),ds_train):
 
     # Generate new random keys for this step
     keys = jax.random.split(split_key,num=args.num_devices*args.num_experiments_per_device+1)
@@ -148,7 +148,7 @@ for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_fr
         weights = reverse_norms(weights)
 
     # Save weights,batch_stats and optim state
-    if i%parse_args.grad_spacing == 0:
+    if i%parse_args.mg_spacing == 0:
         with open(os.path.join(args.save_path,parse_args.folder_name,"grads",str(i) + ".pkl"), "wb") as f:
             pkl.dump(grad,f)
 

@@ -12,6 +12,7 @@ jax.config.update('jax_platform_name', 'cpu')
 import pickle as pkl
 from collections import OrderedDict
 import os
+import math
 import operator
 from multiprocessing.pool import ThreadPool
 import seaborn as sns
@@ -97,7 +98,7 @@ def load(path):
     for p in path:
         with open(p, "rb") as f:
             ckpt.append(pkl.load(f))
-
+            
     return tree_map(lambda *e : np.concatenate([*e]), *ckpt)
 
 def get_stats(path, subfolder):
@@ -535,92 +536,76 @@ def grad_norm_per_layer(data_path,exps,labels,colors,mg_spacing,folder):
     
     return fig,axs
 
-def mg_spacing_and_bar_plot(data_path,exps,labels,colors,mg_spacing,folder):
+def distribution_drift(data_path,exps,labels,colors):
+    fig,axs = plt.subplots(ncols=1,nrows=2,sharey="row")
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
+        path = f"{data_path}/{exp}"
+        ckpt_paths = get_ckpt_paths(path,"drift")
+
+        x = [e[0] for e in list(ckpt_paths.items())]
+
+
+        drift = [load(e) for e in ckpt_paths.values()]
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[e for e in drift if e is not None])
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in ["Conv_1","Conv_2","Conv_3","Conv_4","Conv_5","Conv_6","Conv_7","out"]])
     
-    fig,axs = plt.subplots(ncols=3,nrows=1)
-    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
-        path = f"{data_path}/{exp}/{mg_spacing}"
-        ckpt_paths_grads = get_ckpt_paths(path,folder)
+        for k,measure in enumerate(["dist","cos"]):
+            drift_measure = np.mean(drift[measure],axis=0)
+            mean = np.mean(drift_measure,axis=-1)
+            std = np.std(drift_measure,axis=-1)
+            mean,std = smooth(mean,std,smoothing=5)
+            axs[k].plot(x,mean,c=color,label=label)
+            axs[k].fill_between(x,mean-std,mean+std,alpha=0.15,color=color)
+
+    lines, labels = axs[0].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
+
+    return fig,axs
+
+def plot_mean_or_norm(exps,labels,mg_spacing,plot_mean=True,max_step=None):
+    
+    fig,axs = plt.subplots(ncols=len(labels),nrows=1)
+    for i,(label,exp) in enumerate(zip(labels,exps)):
+        path = f"{exp}/{mg_spacing}"
+        ckpt_paths = get_ckpt_paths(path,"states")
 
         @jax.jit
         @partial(jax.vmap,in_axes=(0))
-        def get_grad_norm_fn(grads):
-            norms = tree_map(lambda w : jnp.linalg.vector_norm(jnp.reshape(w,-1)),grads)
-            return norms
-
-        @jax.jit
-        @partial(jax.vmap,in_axes=(0))
-        @partial(jax.vmap,in_axes=(0))
-        def polyfit_fn(norms):
-
-            return jnp.polyfit(jnp.arange(norms.size,dtype=jnp.float32),norms,1)
-
-        x = [e[0] for e in list(ckpt_paths_grads.items())]
-
-        if folder == "states":
-            with ThreadPool(processes=12) as pool:
-                row_dict = pool.map(lambda e : get_grad_norm_fn(load([e[1]])[0]),list(ckpt_paths_grads.items()))
-        else:
-             with ThreadPool(processes=12) as pool:
-                row_dict = pool.map(lambda e : get_grad_norm_fn(load([e[1]])),list(ckpt_paths_grads.items()))
+        def get_mean_fn(weights):
+            if plot_mean:
+                measure = tree_map(lambda w : jnp.mean(jnp.mean(jnp.reshape(w,(-1,w.shape[-1])),axis=0),axis=0),weights)
+            else:
+                measure = tree_map(lambda w : jnp.mean(jnp.linalg.vector_norm(jnp.reshape(w,(-1,w.shape[-1])),axis=0),axis=0),weights)
+            return measure
         
-        row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
-        row_dict = {key : val for key,val in row_dict.items() if not "batch" in key.lower()}
-        row_dict = jnp.asarray([val["kernel"] for _,val in row_dict.items()]).T
+        x = [e for e in list(ckpt_paths.keys())]
+        with ThreadPool(processes=12) as pool:
+            measures = pool.map(lambda e : get_mean_fn(load(e)[0]),ckpt_paths.values())
 
-        polyfit_result = tree_map(polyfit_fn,row_dict)
+        measures = tree_map(lambda *x : jnp.asarray(x) , *[e for e in measures if e is not None])
+        measures = {key : val for key,val in measures.items() if not "batch" in key.lower() or "out" in key.lower()}
+        #(layer, t, num_runs)
+        measures = jnp.asarray([val["kernel"] for _,val in measures.items()])
 
-        mean_m = np.mean(polyfit_result[:,:,0],axis=0)
-        std_m = np.std(polyfit_result[:,:,0],axis=0)
-        mean_m,std_m = smooth(mean_m,std_m,4)
-        axs[0].plot(x,mean_m,label=label,c=color)
-        axs[0].fill_between(x, mean_m-std_m, mean_m+std_m, alpha=0.15,color=color)
+        mean = np.mean(measures,axis=(0,-1))
+        std = np.std(measures,axis=(0,-1))
 
-        mean_b = np.mean(polyfit_result[:,:,1],axis=0)
-        std_b = np.std(polyfit_result[:,:,1],axis=0)
-        mean_b,std_b = smooth(mean_b,std_b,4)
-        axs[1].plot(x,mean_b,label=label,c=color)
-        axs[1].fill_between(x, mean_b-std_b, mean_b+std_b, alpha=0.15,color=color)
+        if max_step:
+            cutoff = len([e for e in x if e<=max_step])
+            x = x[:cutoff]
+            mean = mean[:cutoff]
+            std = std[:cutoff]
+        axs[i].plot(x,mean,c=sns.color_palette("tab10", 1)[0])
+        axs[i].fill_between(x,mean-std,mean+std,alpha=.15,color=sns.color_palette("tab10", 1)[0])
 
-
-    lines, labels = axs[1].get_legend_handles_labels()
-    fig.legend(lines, labels, loc='lower center', ncol=len(labels), bbox_to_anchor=(0.33,0.1), bbox_transform=fig.transFigure)
-
-    axs[0].set_title("m",font={'weight' : 'bold'})
-    axs[1].set_title("b",font={'weight' : 'bold'})
-    axs[2].set_title("max. validation accuracy",font={'weight' : 'bold'})
-
-    max_accs = []
-    for exp in exps:
-
-        max_accs.append(max_acc(get_stats(f"{data_path}/{exp}","test_stats")))
-
-    max_accs = np.asarray(max_accs)
-    mean = np.mean(max_accs,axis=-1)
-    std = np.std(max_accs,axis=-1)
-
-    argsort_mean = np.argsort(mean)
-    std = std[argsort_mean]
-    labels = np.asarray(labels)[argsort_mean]
-    mean = mean[argsort_mean]
-
-    #plt.ylabel("validation accuracy",font={'weight' : 'bold'})
-    sns.barplot({"x" : labels,"y" : mean},x = "x", y = "y",palette=colors,edgecolor="black",ax=axs[2])
-    axs[2].set_xticklabels(axs[2].get_xticklabels(),rotation=70)
-    axs[2].set_ylim(0.7,0.9)
-
-    axs[2].set_xlabel("")
-    axs[2].set_ylabel("")
+        axs[i].set_title(label,font={'weight' : 'bold'})
     
-    fig.set_size_inches(18,6)
-    fig.tight_layout()
-
     return fig,axs
 
 
 def mg_spacing(data_path,exps,labels,colors,mg_spacing):
     
-    fig,axs = plt.subplots(ncols=3,nrows=1)
+    fig,axs = plt.subplots(ncols=1,nrows=3)
     for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
         path = f"{data_path}/{exp}/{mg_spacing}"
         ckpt_paths_updates = get_ckpt_paths(path,"updates")
@@ -669,14 +654,11 @@ def mg_spacing(data_path,exps,labels,colors,mg_spacing):
         plot(2,polyfit_updates[:,:,1])
 
     lines, labels = axs[1].get_legend_handles_labels()
-    fig.legend(lines, labels, loc='lower center', ncol=len(labels), bbox_to_anchor=(0.5,-0.075), bbox_transform=fig.transFigure)
+    fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
 
     axs[0].set_title("weight b",font={'weight' : 'bold'})
     axs[1].set_title("grad m",font={'weight' : 'bold'})
     axs[2].set_title("grad b",font={'weight' : 'bold'})
-    
-    fig.set_size_inches(18,6)
-    fig.tight_layout()
 
     return fig,axs
 

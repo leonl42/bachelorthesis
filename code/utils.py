@@ -480,23 +480,45 @@ def get_optimizer(args,helper_weights):
     else:
         apply_wd_to = args.optimizer.apply_wd_to
 
-    conv_kernel_wd_mask = tree_map_with_path(lambda s,_ : substrings_in_path(s,apply_wd_to),helper_weights)
+    wd_mask = tree_map_with_path(lambda s,_ : substrings_in_path(s,apply_wd_to),helper_weights)
+    lambda_wd = args.optimizer.lambda_wd
+    wd_optimizer = optax.add_decayed_weights(lambda_wd,mask=wd_mask)
 
+
+
+    lr_scale = None
+    if args.optimizer.layerwise_lr_scale:
+        lr_scale = args.optimizer.layerwise_lr_scale
+        lr_scale = tree_map_with_path(lambda s,_ : optax.scale(-lr_scale[0]) if substrings_in_path(s,lr_scale[1]) else optax.scale(-lr_scale[2]),helper_weights)
+
+    def get_base_optimizer(local_lr):
+        match args.optimizer.optimizer:
+            case "adam":
+                base_optimizer = optax.adam(learning_rate=local_lr)
+            case "sgdm":
+                base_optimizer = optax.sgd(learning_rate=local_lr, momentum=args.optimizer.momentum)
+            case _ :
+                exit("No matching optimizer ({0}) found".format(args.optimizer.optimizer))
+        return base_optimizer
+    
     if not args.optimizer.lr_scheduler:
         lr = args.optimizer.lr
+        if isinstance(lr,list):
+
+            labels = tree_map_with_path(lambda s,_ : "assigned" if substrings_in_path(s, lr[1]) else "other",helper_weights)
+            optimizers = {
+                "assigned": get_base_optimizer(lr[0]), 
+                "other": get_base_optimizer(lr[2]), 
+            }
+
+            base_optimizer = optax.multi_transform(optimizers,labels)
+        else:
+            base_optimizer = get_base_optimizer(lr)
     elif args.optimizer.lr_scheduler.type == "random":
         lr = lambda step : jax.random.uniform(key=jax.random.key(step),minval=args.optimizer.lr_scheduler.minval,maxval=args.optimizer.lr_scheduler.maxval)
+        base_optimizer = get_base_optimizer(lr)
 
-    lambda_wd = args.optimizer.lambda_wd
-
-    wd = optax.add_decayed_weights(lambda_wd,mask=conv_kernel_wd_mask)
-    match args.optimizer.optimizer:
-        case "adam":
-            optimizer = optax.chain(wd, optax.adam(learning_rate=lr)) 
-        case "sgdm":
-            optimizer = optax.chain(wd, optax.sgd(learning_rate=lr, momentum=args.optimizer.momentum))
-        case _ :
-            exit("No matching optimizer ({0}) found".format(args.optimizer.optimizer))
+    optimizer = optax.chain(wd_optimizer,base_optimizer)
 
     return optimizer
 
