@@ -35,5 +35,5 @@
         "reverse_norms": false
     },
     "at_step": 250000,
-    "save_path": "./exps_sgdm/norm/0.1_1/"
+    "save_path": "./data/sgdm_wbn/cnorm/0.1_1/"
 }

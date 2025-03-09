@@ -41,5 +41,5 @@
         "reverse_norms": false
     },
     "at_step": 1200000,
-    "save_path": "./data/adam_wbn/cnorm_p1/0.00025/"
+    "save_path": "./data/adam_wbn/cnorm_p1_lrfix/0.00025/"
 }

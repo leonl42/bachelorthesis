@@ -183,7 +183,7 @@ def max_acc(stats):
     
     return np.max(np.stack(list(stats["acc"].values())),axis=0)
 
-def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True,alpha=0.3,color=None):
+def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True,alpha=0.3,color=None,plot=True):
     if len(paths) == 0:
         return None,None,None
     x = []
@@ -214,13 +214,14 @@ def plot_hyperparam_y(paths, x_fn, y_fn, ax, label=None, norm=True,alpha=0.3,col
     else:
         means_normed = means
         stds_normed = stds
-
-    if color:
-        ax.plot(x,means_normed, label=label,c=color)
-        ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha,color=color)
-    else:
-        ax.plot(x,means_normed, label=label)
-        ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha)
+    
+    if plot:
+        if color:
+            ax.plot(x,means_normed, label=label,c=color)
+            ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha,color=color)
+        else:
+            ax.plot(x,means_normed, label=label)
+            ax.fill_between(x, means_normed-stds_normed, means_normed+stds_normed, alpha=alpha)
 
 
     return (x,means,means_normed)
@@ -536,7 +537,7 @@ def grad_norm_per_layer(data_path,exps,labels,colors,mg_spacing,folder):
     
     return fig,axs
 
-def distribution_drift(data_path,exps,labels,colors):
+def distribution_drift(data_path,exps,labels,colors,drift_keys = ["Conv_1","Conv_2","Conv_3","Conv_4","Conv_5","Conv_6","Conv_7","out"]):
     fig,axs = plt.subplots(ncols=1,nrows=2,sharey="row")
     for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
         path = f"{data_path}/{exp}"
@@ -547,7 +548,7 @@ def distribution_drift(data_path,exps,labels,colors):
 
         drift = [load(e) for e in ckpt_paths.values()]
         drift = tree_map(lambda *x : jnp.asarray(x) , *[e for e in drift if e is not None])
-        drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in ["Conv_1","Conv_2","Conv_3","Conv_4","Conv_5","Conv_6","Conv_7","out"]])
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in drift_keys])
     
         for k,measure in enumerate(["dist","cos"]):
             drift_measure = np.mean(drift[measure],axis=0)
@@ -560,33 +561,46 @@ def distribution_drift(data_path,exps,labels,colors):
     lines, labels = axs[0].get_legend_handles_labels()
     fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
 
+    axs[0].set_ylabel(r"$||\cdot||_2$")
+    axs[1].set_ylabel(r"$\cos(\theta)$")
+    
     return fig,axs
 
-def plot_mean_or_norm(exps,labels,mg_spacing,plot_mean=True,max_step=None):
+def plot_mean_or_norm(exps,labels,colors,mg_spacing,load_idx=0,plot_mean=True,max_step=None,layer="conv",attr="kernel",measure_global=False,sharey="all"):
     
-    fig,axs = plt.subplots(ncols=len(labels),nrows=1)
-    for i,(label,exp) in enumerate(zip(labels,exps)):
+    fig,axs = plt.subplots(ncols=len(labels),nrows=1,sharey=sharey)
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
         path = f"{exp}/{mg_spacing}"
         ckpt_paths = get_ckpt_paths(path,"states")
-
+        ckpt_paths[0] = f"{exp}/states/0.pkl"
+        ckpt_paths.move_to_end(0, last=False)
+        
         @jax.jit
         @partial(jax.vmap,in_axes=(0))
         def get_mean_fn(weights):
+
             if plot_mean:
-                measure = tree_map(lambda w : jnp.mean(jnp.mean(jnp.reshape(w,(-1,w.shape[-1])),axis=0),axis=0),weights)
+                measure_fn = lambda w : jnp.mean(w,axis=0)
             else:
-                measure = tree_map(lambda w : jnp.mean(jnp.linalg.vector_norm(jnp.reshape(w,(-1,w.shape[-1])),axis=0),axis=0),weights)
+                measure_fn = lambda w : jnp.linalg.vector_norm(w,axis=0)
+
+            if measure_global:
+                measure = tree_map(lambda w : measure_fn(w.reshape(-1)),weights)
+            else:
+                measure = tree_map(lambda w : jnp.mean(measure_fn(jnp.reshape(w,(-1,w.shape[-1])))),weights)
+
             return measure
         
         x = [e for e in list(ckpt_paths.keys())]
         with ThreadPool(processes=12) as pool:
-            measures = pool.map(lambda e : get_mean_fn(load(e)[0]),ckpt_paths.values())
+            measures = pool.map(lambda e : get_mean_fn(load(e)[load_idx]),ckpt_paths.values())
 
         measures = tree_map(lambda *x : jnp.asarray(x) , *[e for e in measures if e is not None])
-        measures = {key : val for key,val in measures.items() if not "batch" in key.lower() or "out" in key.lower()}
-        #(layer, t, num_runs)
-        measures = jnp.asarray([val["kernel"] for _,val in measures.items()])
+        measures = {key : val for key,val in measures.items() if  substrings_in_path(key.lower(),layer)}
 
+        #(layer, t, num_runs)
+        measures = jnp.asarray([val[attr] for _,val in measures.items()])
+        
         mean = np.mean(measures,axis=(0,-1))
         std = np.std(measures,axis=(0,-1))
 
@@ -595,18 +609,18 @@ def plot_mean_or_norm(exps,labels,mg_spacing,plot_mean=True,max_step=None):
             x = x[:cutoff]
             mean = mean[:cutoff]
             std = std[:cutoff]
-        axs[i].plot(x,mean,c=sns.color_palette("tab10", 1)[0])
-        axs[i].fill_between(x,mean-std,mean+std,alpha=.15,color=sns.color_palette("tab10", 1)[0])
+        axs[i].plot(x,mean,c=color)
+        axs[i].fill_between(x,mean-std,mean+std,alpha=.15,color=color)
 
-        axs[i].set_title(label,font={'weight' : 'bold'})
+        axs[i].set_title(label,font={'weight' : 'normal'})
     
     return fig,axs
 
 
-def mg_spacing(data_path,exps,labels,colors,mg_spacing):
+def mg_spacing(data_path,exps,labels,colors,mg_spacing,layer="conv"):
     
     fig,axs = plt.subplots(ncols=1,nrows=3)
-    for i,(label,exp,color) in enumerate(zip(labels,exps,colors.values())):
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
         path = f"{data_path}/{exp}/{mg_spacing}"
         ckpt_paths_updates = get_ckpt_paths(path,"updates")
         ckpt_paths_states = get_ckpt_paths(path,"states")
@@ -632,7 +646,7 @@ def mg_spacing(data_path,exps,labels,colors,mg_spacing):
         
         def to_jnp(row_dict):
             row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
-            row_dict = {key : val for key,val in row_dict.items() if not "batch" in key.lower()}
+            row_dict = {key : val for key,val in row_dict.items() if substrings_in_path(key.lower(),layer)}
             row_dict = jnp.asarray([val["kernel"] for _,val in row_dict.items()]).T
         
             return row_dict
@@ -664,6 +678,16 @@ def mg_spacing(data_path,exps,labels,colors,mg_spacing):
 
 colors = dict(zip(["noreg","norm","cnorm","cnormu","gcstdu","wd"], sns.color_palette("tab10", 6)))
 
+
+def get_hyperparam_best_acc(data_path,exps,hyperparam_fns):
+     for exp,hyperparam_fn in zip(exps,hyperparam_fns):
+        x,y,_ = plot_hyperparam_y(get_subexpspaths(f"{data_path}/{exp}"),
+                                hyperparam_fn, 
+                                lambda p : max_acc(get_stats(p,"test_stats")),
+                                plt, 
+                                norm=False,
+                                plot=False)
+        print(f"Best of {exp} is {round(x[y.argmax()],8)} & {round(100*y.max(),2)}\\%")
 
 def plot_wbn_setting_hyperparam_max_acc(data_path,image_path,wrs_p1,wrs):
     fig,axs = plt.subplots(ncols=3,nrows=1,sharey="row")
@@ -770,14 +794,14 @@ def plot_wobn_setting_hyperparam_max_acc(data_path,image_path,wrs,lr):
 
     fig.savefig(f"{image_path}/setting_hyperparameter_max_accuracy.png", bbox_inches='tight')
 
-def plot_wbn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,settings,split,max_step):
+def plot_wbn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,colors,split,max_step):
     fig,axs = plt.subplots(ncols=2,nrows=1,sharey="row")
 
-    for exp,label,setting in zip(exps[:split],labels[:split],settings[:split]):
-        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[0],label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+    for exp,label,color in zip(exps[:split],labels[:split],colors[:split]):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[0],label=label,smoothing=5,color=color,alpha=0.15,max_step=max_step)
 
-    for exp,label,setting in zip(exps[split:],labels[split:],settings[split:]):
-        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[1],label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+    for exp,label,color in zip(exps[split:],labels[split:],colors[split:]):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],axs[1],label=label,smoothing=5,color=color,alpha=0.15,max_step=max_step)
 
     axs[0].set_ylim(0.7,0.9)
     axs[0].legend()
@@ -788,15 +812,14 @@ def plot_wbn_best_hyperparameter_validation_curve(data_path,image_path,exps,labe
     fig.savefig(f"{image_path}/best_hyperparameter_validation_accuracy.png", bbox_inches='tight')
 
 
-def plot_wobn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,settings,max_step):
+def plot_wobn_best_hyperparameter_validation_curve(data_path,image_path,exps,labels,colors,max_step):
 
-    for exp,label,setting in zip(exps,labels,settings):
-        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],plt,label=label,smoothing=5,color=colors[setting],alpha=0.15,max_step=max_step)
+    for exp,label,color in zip(exps,labels,colors):
+        plot_step_stat(get_stats(f"{data_path}/{exp}","test_stats")["acc"],plt,label=label,smoothing=5,color=color,alpha=0.15,max_step=max_step)
 
     plt.gca().set_ylim(0.7,0.9)
     plt.legend()
 
-    plt.gcf().text(-0.03, 0.5, "Validation accuracy", va='center', rotation='vertical',font={'size'   : 12,'weight' : 'bold'})
-    plt.gcf().set_size_inches(6,6)
-    plt.gcf().tight_layout()
-    plt.gcf().savefig(f"{image_path}/best_hyperparameter_validation_accuracy.png", bbox_inches='tight')
+    plt.gcf().text(-0.03, 0.5, "Validation accuracy", va='center', rotation='vertical',font={'size'   : 12,'weight' : 'normal'})
+    
+    return plt.gcf(),plt.gca()

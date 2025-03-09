@@ -36,5 +36,5 @@
         "reverse_norms": false
     },
     "at_step": 400000,
-    "save_path": "./data/adam_wbn/noreg/0.00069/"
+    "save_path": "./exps_adam2/noreg/0.0007/"
 }

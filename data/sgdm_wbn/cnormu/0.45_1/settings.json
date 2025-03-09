@@ -35,5 +35,5 @@
         "reverse_norms": false
     },
     "at_step": 75000,
-    "save_path": "./data/sgdm_wbn/norm/0.45_1/"
+    "save_path": "./data/sgdm_wbn/cnormu/0.45_1/"
 }
