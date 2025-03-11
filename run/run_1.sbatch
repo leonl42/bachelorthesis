@@ -13,7 +13,4 @@ source ~/miniconda/bin/activate deskitopi
 export TMPDIR=/share/users/student/l/llemke/tmp
 export PATH=/home/student/l/llemke/miniconda/envs/deskitopi/bin:/home/student/l/llemke/miniconda/condabin:/opt/xcat/bin:/opt/xcat/sbin:/opt/xcat/share/xcat/tools:/appl/spack/bin:/usr/lib64/ccache
 
-python code/main.py ./data/sgdm_wbn/cnorm_p1/0.005/ --reset
-python code/main.py ./data/sgdm_wbn/cnorm_p1/0.006/ --reset
-python code/main.py ./data/sgdm_wbn/cnorm_p1/0.008/ --reset
-python code/main.py ./data/sgdm_wbn/cnorm_p1/0.011/ --reset
+python code/consecutive_grads.py ./data/adam_wbn/noreg/0.00278/ mg_spacing_0 0 50 5000

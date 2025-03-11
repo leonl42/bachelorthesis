@@ -1,8 +1,8 @@
 #!/bin/bash
-#SBATCH --job-name="run2_3"
-#SBATCH --cpus-per-task=16            
+#SBATCH --job-name="run_3"
+#SBATCH --cpus-per-task=8            
 #SBATCH --mem=32G                     
-#SBATCH --time=5:00:00
+#SBATCH --time=12:00:00
 #SBATCH --partition=gpu
 #SBATCH --gres=gpu:1 
 #SBATCH --constraint="A100|H100.80gb"
@@ -13,4 +13,4 @@ source ~/miniconda/bin/activate deskitopi
 export TMPDIR=/share/users/student/l/llemke/tmp
 export PATH=/home/student/l/llemke/miniconda/envs/deskitopi/bin:/home/student/l/llemke/miniconda/condabin:/opt/xcat/bin:/opt/xcat/sbin:/opt/xcat/share/xcat/tools:/appl/spack/bin:/usr/lib64/ccache
 
-python code/main.py ./data/adam_wbn/wd/3e-08/ --overwrite-num-steps 1200000 --overwrite-save-state 1200000 --overwrite-save-grad -1
+python code/consecutive_grads.py ./data/adam_wobn/cnorm/1.4_1/ mg_spacing_0 250000 25 5000 --continue_mg

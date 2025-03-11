@@ -582,7 +582,7 @@ def adam_drift(data_path,exps,labels,colors,drift_keys = ["Conv_0","Conv_1","Con
         drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in drift_keys])
         
         for k,measure in enumerate(["nu","mu"]):
-            drift_measure = np.mean(drift[measure],axis=0)
+            drift_measure = np.mean(drift[measure]["cos"],axis=0)
             mean = np.mean(drift_measure,axis=-1)
             std = np.std(drift_measure,axis=-1)
             mean,std = smooth(mean,std,smoothing=5)
@@ -614,7 +614,7 @@ def sgdm_drift(data_path,exps,labels,colors,drift_keys = ["Conv_0","Conv_1","Con
         drift = tree_map(lambda x : jnp.mean(x,axis=-1),drift)
         drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in drift_keys])
 
-        drift_measure = np.mean(drift["trace"]["dist"],axis=0)
+        drift_measure = np.mean(drift["trace"]["cos"],axis=0)
 
         mean = np.mean(drift_measure,axis=-1)
         std = np.std(drift_measure,axis=-1)
@@ -664,10 +664,9 @@ def plot_mean_or_norm(exps,labels,colors,mg_spacing,load_idx=0,plot_mean=True,ma
 
         measures = tree_map(lambda *x : jnp.asarray(x) , *[e for e in measures if e is not None])
         measures = {key : val for key,val in measures.items() if  substrings_in_path(key.lower(),layer)}
-
+        
         #(layer, t, num_runs)
         measures = jnp.asarray([val[attr] for _,val in measures.items()])
-        
         mean = np.mean(measures,axis=(0,-1))
         std = np.std(measures,axis=(0,-1))
 

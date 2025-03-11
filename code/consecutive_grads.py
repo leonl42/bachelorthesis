@@ -30,17 +30,20 @@ parser.add_argument('folder_name', type=str)
 parser.add_argument('load_from_step', type=int)
 parser.add_argument('num_grads', type=int, default=10)
 parser.add_argument('mg_spacing', type=int, default=1)
+parser.add_argument('--continue_mg', action=argparse.BooleanOptionalAction)
 parser.add_argument('--bfloat16', action=argparse.BooleanOptionalAction)
 parse_args = parser.parse_args()
 
-if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"grads")):
-    shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"grads"))
+if not parse_args.continue_mg:
 
-if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"updates")):
-    shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"updates"))
+    if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"grads")):
+        shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"grads"))
 
-if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"states")):
-    shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"states"))
+    if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"updates")):
+        shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"updates"))
+
+    if os.path.exists(os.path.join(parse_args.save_path,parse_args.folder_name,"states")):
+        shutil.rmtree(os.path.join(parse_args.save_path,parse_args.folder_name,"states"))
 
 os.makedirs(os.path.join(parse_args.save_path,parse_args.folder_name,"grads"),exist_ok=True)
 os.makedirs(os.path.join(parse_args.save_path,parse_args.folder_name,"updates"),exist_ok=True)
@@ -73,7 +76,12 @@ with jax.default_device(default_cpu_device):
 optimizer = get_optimizer(args,helper_weights=helper_weights)
 
 
-with open(parse_args.save_path + "states/" + str(parse_args.load_from_step) + ".pkl", "rb") as f:
+if parse_args.continue_mg and parse_args.load_from_step != 0:
+
+    with open(parse_args.save_path + parse_args.folder_name + "/states/" + str(parse_args.load_from_step) + ".pkl", "rb") as f:
+        weights,batch_stats,optimizer_state = pkl.load(f)
+else:
+    with open(parse_args.save_path + "states/" + str(parse_args.load_from_step) + ".pkl", "rb") as f:
         weights,batch_stats,optimizer_state = pkl.load(f)
 
 weights,batch_stats,optimizer_state = device_put(named_sharding,weights,batch_stats,optimizer_state)
@@ -148,7 +156,7 @@ for i,(img,lbl) in zip(tqdm(range(parse_args.load_from_step+1,parse_args.load_fr
         weights = reverse_norms(weights)
 
     # Save weights,batch_stats and optim state
-    if i%parse_args.mg_spacing == 0:
+    if i%parse_args.mg_spacing == 0 or i==1:
         with open(os.path.join(args.save_path,parse_args.folder_name,"grads",str(i) + ".pkl"), "wb") as f:
             pkl.dump(grad,f)
 
