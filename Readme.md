@@ -8,6 +8,11 @@
 - Run the file "run_all.sh"
 
 ### Step 3: Make plots
+- In the beginning of "./plots/plot_utils.py" replace "global_path/code" in sys.path.append with the global path on your system
+- In the beginning of "./plots/plots_sgdm_wbn.py" replace "global_path/plots" in sys.path.append with the global path on your system
+- In the beginning of "./plots/plots_adam_wbn.py" replace "global_path/plots" in sys.path.append with the global path on your system
+- In the beginning of "./plots/plots_sgdm_wobn.py" replace "global_path/plots" in sys.path.append with the global path on your system
+- In the beginning of "./plots/plots_adam_wobn.py" replace "global_path/plots" in sys.path.append with the global path on your system
 - Run the .ipynb notebooks in "./plots"
 
 
