@@ -2,27 +2,27 @@
 #python code/consecutive_grads.py ./data/adam_wbn/norm/5.2_1/ mg_spacing_0 0 1 1 --continue_mg
 #python code/consecutive_grads.py ./data/adam_wbn/cnorm/4.0_1/ mg_spacing_0 0 1 1 --continue_mg
 #python code/consecutive_grads.py ./data/adam_wbn/cnormu/4.4_1/ mg_spacing_0 0 1 1 --continue_mg
-python code/consecutive_grads.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0 0 1 1 --continue_mg
+#python code/consecutive_grads.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0 0 1 1 --continue_mg
 #python code/consecutive_grads.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0 0 1 1 --continue_mg
 
 #python code/distribution_drift.py ./data/adam_wbn/noreg/0.00278/ mg_spacing_0
 #python code/distribution_drift.py ./data/adam_wbn/norm/5.2_1/ mg_spacing_0
 #python code/distribution_drift.py ./data/adam_wbn/cnorm/4.0_1/ mg_spacing_0
 #python code/distribution_drift.py ./data/adam_wbn/cnormu/4.4_1/ mg_spacing_0
-python code/distribution_drift.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0
+#python code/distribution_drift.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0
 #python code/distribution_drift.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0
 
 #python code/adam_drift.py ./data/adam_wbn/noreg/0.00278/ mg_spacing_0
 #python code/adam_drift.py ./data/adam_wbn/norm/5.2_1/ mg_spacing_0
 #python code/adam_drift.py ./data/adam_wbn/cnorm/4.0_1/ mg_spacing_0
 #python code/adam_drift.py ./data/adam_wbn/cnormu/4.4_1/ mg_spacing_0
-python code/adam_drift.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0
+#python code/adam_drift.py ./data/adam_wbn/gcstdu/4.8_1/ mg_spacing_0
 #python code/adam_drift.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0
 
 #python code/consecutive_grads.py ./data/adam_wbn/cnormu/4.4_1/ mg_spacing_0 0 50 5000
-python code/consecutive_grads.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0 100000 30 5000 --continue_mg
+#python code/consecutive_grads.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0 100000 30 5000 --continue_mg
 python code/distribution_drift.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0
-python code/adam_drift.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0
+#python code/adam_drift.py ./data/adam_wbn/wd/3e-08/ mg_spacing_0
 
 #python code/consecutive_grads.py ./data/adam_wbn/noreg/0.00069/ mg_spacing_0 0 50 5000
 #python code/consecutive_grads.py ./data/adam_wbn/noreg/0.00025/ mg_spacing_0 0 50 5000
