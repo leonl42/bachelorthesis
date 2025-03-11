@@ -2,7 +2,7 @@ import jax
 import jax.numpy as jnp
 import optax
 from functools import partial
-from models import VGG11,VGG11_slim,ResNet,BottleneckResNetBlock
+from models import VGG11
 import tensorflow as tf
 import tensorflow_datasets as tfds
 from jax.tree_util import tree_map_with_path,keystr,tree_map,tree_leaves_with_path,tree_leaves

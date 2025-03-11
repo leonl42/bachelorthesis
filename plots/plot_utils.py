@@ -566,6 +566,73 @@ def distribution_drift(data_path,exps,labels,colors,drift_keys = ["Conv_1","Conv
     
     return fig,axs
 
+
+def adam_drift(data_path,exps,labels,colors,drift_keys = ["Conv_0","Conv_1","Conv_2","Conv_3","Conv_4","Conv_5","Conv_6","Conv_7"]):
+    fig,axs = plt.subplots(ncols=1,nrows=2,sharey="row")
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
+        path = f"{data_path}/{exp}"
+        ckpt_paths = get_ckpt_paths(path,"adam_drift")
+
+        x = [e[0] for e in list(ckpt_paths.items())]
+
+
+        drift = [load(e) for e in ckpt_paths.values()]
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[e for e in drift if e is not None])
+        drift = tree_map(lambda x : jnp.mean(x,axis=-1),drift)
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in drift_keys])
+        
+        for k,measure in enumerate(["nu","mu"]):
+            drift_measure = np.mean(drift[measure],axis=0)
+            mean = np.mean(drift_measure,axis=-1)
+            std = np.std(drift_measure,axis=-1)
+            mean,std = smooth(mean,std,smoothing=5)
+            axs[k].plot(x,mean,c=color,label=label)
+            axs[k].fill_between(x,mean-std,mean+std,alpha=0.15,color=color)
+
+    lines, labels = axs[0].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
+
+    axs[0].set_title("Cosine Similarity of Adam running average $\mu_{adam}$ and calculated $\mu_{calc}$",font={'weight' : 'normal'})
+    axs[1].set_title("Cosine Similarity of Adam running average $\\nu_{adam}$ and calculated $\\nu_{calc}$",font={'weight' : 'normal'})
+
+    axs[0].set_ylabel(r"$\cos(\theta)$")
+    axs[1].set_ylabel(r"$\cos(\theta)$")
+
+    return fig,axs
+
+def sgdm_drift(data_path,exps,labels,colors,drift_keys = ["Conv_0","Conv_1","Conv_2","Conv_3","Conv_4","Conv_5","Conv_6","Conv_7"]):
+    fig,axs = plt.gcf(),plt.gca()
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
+        path = f"{data_path}/{exp}"
+        ckpt_paths = get_ckpt_paths(path,"sgdm_drift")
+
+        x = [e[0] for e in list(ckpt_paths.items())]
+
+
+        drift = [load(e) for e in ckpt_paths.values()]
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[e for e in drift if e is not None])
+        drift = tree_map(lambda x : jnp.mean(x,axis=-1),drift)
+        drift = tree_map(lambda *x : jnp.asarray(x) , *[drift[key] for key in drift_keys])
+
+        drift_measure = np.mean(drift["trace"]["dist"],axis=0)
+
+        mean = np.mean(drift_measure,axis=-1)
+        std = np.std(drift_measure,axis=-1)
+        mean,std = smooth(mean,std,smoothing=5)
+        axs.plot(x,mean,c=color,label=label)
+        axs.fill_between(x,mean-std,mean+std,alpha=0.15,color=color)
+
+    lines, labels = axs.get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
+
+    axs.set_title("Cosine Similarity of SgdM running average $\mu_{sgdm}$ and calculated $\mu_{calc}$",font={'weight' : 'normal'})
+
+    axs.set_ylabel(r"$\cos(\theta)$")
+
+
+    return fig,axs
+
+
 def plot_mean_or_norm(exps,labels,colors,mg_spacing,load_idx=0,plot_mean=True,max_step=None,layer="conv",attr="kernel",measure_global=False,sharey="all"):
     
     fig,axs = plt.subplots(ncols=len(labels),nrows=1,sharey=sharey)
@@ -614,6 +681,62 @@ def plot_mean_or_norm(exps,labels,colors,mg_spacing,load_idx=0,plot_mean=True,ma
 
         axs[i].set_title(label,font={'weight' : 'normal'})
     
+    return fig,axs
+
+
+def gradients_and_updates(data_path,exps,labels,colors,mg_spacing,layer="conv"):
+    
+    fig,axs = plt.subplots(ncols=1,nrows=2)
+    for i,(label,exp,color) in enumerate(zip(labels,exps,colors)):
+        path = f"{data_path}/{exp}/{mg_spacing}"
+        ckpt_paths_grads = get_ckpt_paths(path,"grads")
+        ckpt_paths_updates = get_ckpt_paths(path,"updates")
+
+        @jax.jit
+        @partial(jax.vmap,in_axes=(0))
+        def get_grad_norm_fn(w):
+            norms = tree_map(lambda w : jnp.mean(jnp.linalg.vector_norm(jnp.reshape(w,(-1,w.shape[-1])),axis=0),axis=0),w)
+            return norms
+
+
+        x = [e[0] for e in list(ckpt_paths_updates.items())]
+
+        with ThreadPool(processes=12) as pool:
+            grads = pool.map(lambda e : get_grad_norm_fn(load(e)),ckpt_paths_grads.values())
+            updates = pool.map(lambda e : get_grad_norm_fn(load(e)),ckpt_paths_updates.values())
+        
+        def to_jnp(row_dict):
+            row_dict = tree_map(lambda *x : jnp.asarray(x) , *[e for e in row_dict if e is not None])
+            row_dict = {key : val for key,val in row_dict.items() if substrings_in_path(key.lower(),layer)}
+            row_dict = jnp.asarray([val["kernel"] for _,val in row_dict.items()]).T
+        
+            return row_dict
+        
+        grads,updates = to_jnp(grads),to_jnp(updates)
+
+        grads = jnp.mean(grads,axis=-1)
+        updates = jnp.mean(updates,axis=-1)
+        
+
+        def plot(i,polyfit):
+            mean = np.mean(polyfit,axis=0)
+            std = np.std(polyfit,axis=0)
+            mean,std = smooth(mean,std,4)
+            axs[i].plot(x,mean,label=label,c=color)
+            axs[i].fill_between(x, mean-std, mean+std, alpha=0.15,color=color)
+
+        plot(0,grads)
+        plot(1,updates)
+
+    lines, labels = axs[1].get_legend_handles_labels()
+    fig.legend(lines, labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5,-0.075*math.ceil(len(labels)/2)), bbox_transform=fig.transFigure)
+
+    axs[0].set_title("Norm of gradient of output channel weights",font={'weight' : 'normal'})
+    axs[1].set_title("Norm of updates of output channel weights",font={'weight' : 'normal'})
+
+    axs[0].set_ylabel(r"$||\cdot||_2$",font={'weight' : 'normal'},labelpad=10)
+    axs[1].set_ylabel(r"$||\cdot||_2$",font={'weight' : 'normal'},labelpad=10)
+
     return fig,axs
 
 
